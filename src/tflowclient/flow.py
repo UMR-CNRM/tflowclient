@@ -153,9 +153,7 @@ class FlowNode(observer.Subject):
         if not isinstance(other, FlowNode):
             return False
         identical = (self.name == other.name
-                     and self.status == other.status
-                     and self.expanded == other.expanded
-                     and self.flagged == other.flagged)
+                     and self.status == other.status)
         identical = identical and len(self) == len(other)
         if identical:
             for s_child, o_child in zip(self, other):
@@ -276,7 +274,7 @@ class RootFlowNode(FlowNode):
         self._focused = value
 
 
-class FlowInterface(abc.ABC):
+class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
     """The interface to any workflow scheduler."""
 
     def __init__(self, suite: str, min_refresh_interval: int = 5):
@@ -287,6 +285,7 @@ class FlowInterface(abc.ABC):
         """
         logger.info('Initialising "%s" for suite="%s".',
                     str(self.__class__), suite)
+        super().__init__()
         self._suite = suite
         self._min_refresh_interval = min_refresh_interval
         self._credentials = None
@@ -335,20 +334,40 @@ class FlowInterface(abc.ABC):
         """Ensure that the credential provided by the user are valid."""
         return dict()
 
+    def _notify_tree_roots(self):
+        """Notify tree root changes to observers."""
+        if self._tree_roots:
+            self._notify(dict(tree_roots=self._tree_roots))
+
     @property
     def tree_roots(self) -> RootFlowNode:
         """The list of all the nodes at the root of the monitored suite."""
         if self._tree_roots is None:
             self._tree_roots = self._retrieve_tree_roots()
+            self._notify_tree_roots()
         if self._tree_roots is None or len(self._tree_roots) == 0:
             raise RuntimeError('suite={:s} does not exists or is empty'
                                .format(self.suite))
         return self._tree_roots
 
+    def _set_tree_roots(self, value: RootFlowNode):
+        """Register a new list of tree root nodes."""
+        if value == self._tree_roots:
+            logger.debug('Refresh has been done but no changes in tree roots.')
+            self._tree_roots.touch()
+        else:
+            self._tree_roots = value
+            self._notify_tree_roots()
+
     @abc.abstractmethod
     def _retrieve_tree_roots(self) -> RootFlowNode:
         """Retrieve the list of root nodes form the workflow scheduler server."""
         return RootFlowNode('fake', FlowStatus.ABORTED)
+
+    def _notify_status(self, path: str):
+        """Notify status changes to observers."""
+        self._notify(dict(full_status=dict(path=path,
+                                           node=self._full_statuses[path])))
 
     def in_cache(self, path: str) -> bool:
         """Check if a given **path** is already cached."""
@@ -362,7 +381,17 @@ class FlowInterface(abc.ABC):
         if path not in self._full_statuses:
             logger.debug('Status for "%s" is not yet cached.', path)
             self._full_statuses[path] = self._retrieve_status(path)
+            self._notify_status(path)
         return self._full_statuses[path]
+
+    def _set_full_status(self, path, value: RootFlowNode):
+        """Register new statuses for **path**."""
+        if path in self._full_statuses and value == self._full_statuses[path]:
+            logger.debug('Refresh has been done but no changes in "%s".', path)
+            self._full_statuses[path].touch()
+        else:
+            self._full_statuses[path] = value
+            self._notify_status(path)
 
     @abc.abstractmethod
     def _retrieve_status(self, path: str) -> RootFlowNode:
@@ -374,20 +403,14 @@ class FlowInterface(abc.ABC):
         Refresh both the list of root nodes and the status for the **path**
         root node.
         """
-        if path not in self.tree_roots:
-            raise ValueError("The path base node {!s} is not in the tree roots list."
-                             .format(path))
+        # Update the node's status
         logger.info('Status refresh requested by the user (for "%s").', path)
         if (path not in self._full_statuses
                 or self._full_statuses[path].age >= self.min_refresh_interval):
-            new_root_node = self._retrieve_status(path)
-            if path in self._full_statuses and new_root_node == self._full_statuses[path]:
-                # No change...
-                self._full_statuses[path].touch()
-            else:
-                self._full_statuses[path] = new_root_node
+            self._set_full_status(path, self._retrieve_status(path))
+        # Update tree roots...
         if self.tree_roots.age > self.min_refresh_interval:
-            self._tree_roots = self._retrieve_tree_roots()
+            self._set_tree_roots(self._retrieve_tree_roots())
 
     def command_gateway(self, command: str, root_node: FlowNode,
                         paths: typing.List[str]) -> str:

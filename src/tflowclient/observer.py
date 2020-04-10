@@ -6,6 +6,8 @@ A very crude implementation of the observer design pattern.
 
 from __future__ import annotations
 
+import weakref
+
 __all__ = ["Subject", "Observer"]
 
 
@@ -16,7 +18,7 @@ class Subject(object):
         """
         No required arguments.
         """
-        self._observers = set()
+        self._observers = weakref.WeakSet()
 
     def observer_attach(self, observer: Observer):
         """Attach a new :class:`Observer` object to this class."""

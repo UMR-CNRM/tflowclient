@@ -83,7 +83,7 @@ class TestFlow(unittest.TestCase):
         self.assertIs(rfn.resolve_path(''), rfn)
         rfn_bis.flag_status(FlowStatus.ABORTED)
         rfn_bis.flag_status(FlowStatus.ACTIVE)
-        self.assertNotEqual(rfn, rfn_bis)
+        self.assertEqual(rfn, rfn_bis)
         self.assertListEqual(rfn_bis.flagged_paths(),
                              ['A157/20200114/12/production/obsextract_surf',
                               'A157/20200114/12/assim/obsextract'])

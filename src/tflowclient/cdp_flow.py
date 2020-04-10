@@ -205,17 +205,22 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
         logger.debug('"%s" command result:\n%s', command, output)
         return output, rc == 0
 
+    def _build_tree_roots(self, parsed_status: typing.Dict[str, RootFlowNode]) -> RootFlowNode:
+        """Return tree roots given a parsed CDP output."""
+        rfn = RootFlowNode(self.suite, FlowStatus.UNKNOWN)
+        for node in parsed_status.values():
+            rfn.add(node.name, node.status)
+        return rfn
+
     def _retrieve_tree_roots(self) -> RootFlowNode:
         """Retrieve the list of root nodes form the SMS server."""
         s_output, ok = self._run_cdp_command('status {:s}',
                                              ['/{:s}'.format(self.suite)])
-        rfn = RootFlowNode(self.suite, FlowStatus.UNKNOWN)
         if ok:
-            root_nodes = self._parse_status_output(s_output)
-            rfn = RootFlowNode(self.suite, FlowStatus.UNKNOWN)
-            for node in root_nodes.values():
-                rfn.add(node.name, node.status)
-        return rfn
+            parsed_result = self._parse_status_output(s_output)
+            return self._build_tree_roots(parsed_result)
+        else:
+            return RootFlowNode(self.suite, FlowStatus.UNKNOWN)
 
     def _retrieve_status(self, path: str) -> RootFlowNode:
         """Retrieve the full statuses tree for the **path** root node."""
@@ -224,14 +229,13 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
                                                         'status -f /{:s}/{:s}'.format(self.suite, path)]),
                                              ['fake_path'])
         if ok:
-            root_nodes = self._parse_status_output(s_output)
-            # Create the update of the tree roots nodes
-            tree_roots = RootFlowNode(self.suite, FlowStatus.UNKNOWN)
-            for node in root_nodes.values():
-                tree_roots.add(node.name, node.status)
-            self._tree_roots = tree_roots  # Store it
+            full_parsed_result = self._parse_status_output(s_output)
+            # Update the tree roots nodes
+            self._set_tree_roots(self._build_tree_roots(full_parsed_result))
             # Return the appropriate tree of statuses
-            return self._parse_status_output(s_output)[path]
+            new_root_statuses = full_parsed_result.get(path, None)
+            return (new_root_statuses if new_root_statuses else
+                    RootFlowNode(path, FlowStatus.UNKNOWN))
         else:
             return RootFlowNode(path, FlowStatus.UNKNOWN)
 

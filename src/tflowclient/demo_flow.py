@@ -10,6 +10,7 @@ purposes in the ``bin/tflowclient_demo.py`` executable.
 """
 
 import logging
+import time
 import typing
 
 from . flow import FlowInterface, FlowNode, RootFlowNode, FlowStatus
@@ -51,6 +52,7 @@ class DemoFlowInterface(FlowInterface):
     @staticmethod
     def _generic_flow_node(path, top_status=None, overall_status=None):
         """Create fake family/tasks tree for our workflow definition."""
+        time.sleep(1)
         rfn = RootFlowNode(path,
                            top_status or overall_status or FlowStatus.ABORTED)
         for i_f in range(15):
@@ -88,6 +90,7 @@ class DemoFlowInterface(FlowInterface):
 
     def _retrieve_status(self, path: str) -> RootFlowNode:
         """Create fake family/tasks tree for our workflow definition."""
+        time.sleep(0.1)
         if path in ('0000', '0001'):
             return self._generic_flow_node(path, overall_status=FlowStatus.COMPLETE)
         if path == '0002':

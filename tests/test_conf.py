@@ -27,7 +27,7 @@ class TestConf(unittest.TestCase):
                         ('title', 'white', 'black', 'bold'),
                         ('treeline', 'black', 'light gray'),
                         ('treeline_f', 'light gray', 'dark blue', 'standout'),
-                        ('warning', 'black', 'brown'),]
+                        ('warning', 'black', 'brown')]
 
     def assertPaletteConf(self, conf_line, expected, new=False):
         res = TFlowClientConfig(

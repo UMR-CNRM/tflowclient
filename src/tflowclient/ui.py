@@ -25,6 +25,7 @@ Here are a few pointers:
 from __future__ import annotations
 
 import collections
+import contextlib
 import logging
 import time
 import typing
@@ -57,7 +58,6 @@ class AnyEntryWidget(urwid.TreeWidget, Observer):
         # internal attributes...
         self._cust_label = cust_label
         self._flow_node = flow_node
-        self._flow_node.flagged = False
         # insert an extra AttrWrap for our own use
         super().__init__(node)
         self._w = urwid.AttrWrap(self._w, None)
@@ -274,11 +274,57 @@ AnyUrwidFlowNode = typing.Union[FamilyNode, TaskNode, EmptyNode]
 
 # ------ Our very own implementation of sme Urwid widgets ------
 
-class ArrowLessTreeListBox(urwid.TreeListBox):
-    """A TreeListBow widget that does not use left/right keys."""
+class TFlowTreeListBox(urwid.TreeListBox):
+    """A TreeListBow widget dedicated to the TFlowApplication."""
+
+    def __init__(self,
+                 void_node: AnyUrwidFlowNode, actual_node: AnyUrwidFlowNode,
+                 mainloop: urwid.MainLoop):
+        """
+        :param void_node: The Tree that will be displayed when updating
+        :param actual_node: The Tree that is displayed most of the time
+        :param mainloop: The Urwid's MainLoop object
+        """
+        self._void_walker = urwid.TreeWalker(void_node)
+        self._void_display = False
+        self._actual_node = actual_node
+        self._actual_walker = urwid.TreeWalker(self._actual_node)
+        self._mainloop = mainloop
+        super().__init__(self._actual_walker)
+
+    @property
+    def actual_node(self) -> AnyUrwidFlowNode:
+        """The Urwid node currently being displayed in the widget."""
+        return self._actual_node
+
+    @actual_node.setter
+    def actual_node(self, value: AnyUrwidFlowNode):
+        """Set the Urwid node being displayed in the widget."""
+        self._actual_node = value
+        self._actual_walker = urwid.TreeWalker(self._actual_node)
+        if not self._void_display:
+            self.body = self._actual_walker
+
+    @property
+    def actual_walker(self) -> urwid.TreeWalker:
+        """The Urwid's TreeWalker currently in use."""
+        return self._actual_walker
+
+    @contextlib.contextmanager
+    def temporary_void_display(self, condition: bool = True):
+        """If **condition**, display the void Tree will inside the content manager."""
+        if condition and not self._void_display:
+            self._void_display = True
+            self.body = self._void_walker
+            self._mainloop.draw_screen()
+            yield
+            self.body = self._actual_walker
+            self._void_display = False
+        else:
+            yield
 
     def keypress(self, size: typing.Tuple[int], key: str) -> typing.Union[str, None]:
-        """Do not use left/right keys."""
+        """Do not use left/right keys (they are useful to jump between columns)."""
         if key in ('left', 'right'):
             return key
         else:
@@ -441,8 +487,9 @@ class TFlowCommandView(TFlowAbstractView):
         self.root_node.reset_flagged()
         self.text_container = urwid.Text([summary, ('warning', wait)])
         self.pile.contents = [(urwid.Filler(self.text_container), ('weight', 1))]
+        self.footer_update()
         self.app.loop.draw_screen()
-        self.app.main_view.flow_refresh()
+        self.flow.refresh(self.root_node.name)
         self.text_container = urwid.Text(summary)
         self.pile.contents = [(urwid.Filler(self.text_container), ('weight', 1))]
         self.footer_update([('key', 'ESC/ENTER'), ': back to statuses'])
@@ -465,7 +512,7 @@ class TFlowCommandView(TFlowAbstractView):
                 return key
 
 
-class TFlowMainView(TFlowAbstractView):
+class TFlowMainView(TFlowAbstractView, Observer):
     """The application' main view (statuses tree)."""
 
     footer_text = [
@@ -489,37 +536,68 @@ class TFlowMainView(TFlowAbstractView):
         """
         super().__init__(flow_object, app_object)
         # Create the "Tree" widget
-        self.listbox_void_node = FamilyNode(
+        void_node = FamilyNode(
             RootFlowNode('Please wait (it might take some time to query the server)...',
                          FlowStatus.UNKNOWN),
             ''
         )
-        self.listbox_void_walker = urwid.TreeWalker(self.listbox_void_node)
-        self.listbox_f_node = self.listbox_void_node
-        self.listbox = ArrowLessTreeListBox(self.listbox_void_walker)
-        self.listbox_focused = dict()
+        self.listbox = TFlowTreeListBox(void_node, void_node, mainloop=self.app.loop)
         # Display the various root nodes
         self.roots_walker = urwid.SimpleFocusListWalker([])
-        roots_list = urwid.ListBox(self.roots_walker)
-        self._roots_hits = dict()
-        self._roots_radio_group = []
+        self._roots_hits = dict()  # Keep track of root nodes last access time
+        # Current active root node
         self._active_root = None
         self._active_root_timer = None
         # Populate the root nodes list and display the first item in the tree widget
         self.update_flow_roots()
         # Create the appropriate layout (root nodes on the left, tree on the right)
         self.main_columns = urwid.Columns([(4 + max([len(r.name) for r in self.flow.tree_roots]),
-                                            roots_list),
+                                            urwid.ListBox(self.roots_walker)),
                                            self.listbox],
                                           dividechars=2)
         self.main_content = KeyCaptureWrapper(self.main_columns,
                                               current_view=self)
+        # Start monitoring changes in the FlowInterface
+        self.flow.observer_attach(self)
+
+    def update_obs_item(self, item: FlowInterface, info: dict):
+        """Listen to the FlowInterface and update the UI accordingly"""
+        if 'tree_roots' in info:
+            logger.debug('Tree root change notified by "%r"', item)
+            self.update_flow_roots()
+        if 'full_status' in info:
+            path = info['full_status']['path']
+            logger.debug('Status change notified by "%r" for "%s"', item, path)
+            if path == self.active_root:
+                self.update_tree(self.active_root)
+
+    @property
+    def active_root(self) -> str:
+        """The name of the current active root node."""
+        return self._active_root
+
+    @active_root.setter
+    def active_root(self, value: str):
+        """Setter for the current active root node"""
+        if value != self._active_root:
+            logger.debug('Switching the active node to "%s".', value)
+            # Stop updating the tree age
+            if self._active_root_timer is not None:
+                logger.debug('Cancelling active timer: %s', self._active_root_timer)
+                self.app.loop.remove_alarm(self._active_root_timer)
+                self._active_root_timer = None
+            # Stop tracking the focus (does nothing if not sensible)
+            urwid.disconnect_signal(self.listbox.actual_walker,
+                                    'modified',
+                                    self.update_focused_node)
+            self.update_tree(value)
+            self._active_root = value
 
     @property
     def active_root_node(self) -> typing.Union[RootFlowNode, None]:
-        """Return the current active root FlowNode object"""
-        if self._active_root:
-            return self.flow.full_status(self._active_root)
+        """Return the current active root FlowNode object."""
+        if self.active_root:
+            return self.flow.full_status(self.active_root)
         else:
             return None
 
@@ -533,71 +611,69 @@ class TFlowMainView(TFlowAbstractView):
             self.command_dialog()
         elif key in ('a', 'A'):
             logger.debug('Aborted tasks selection triggered by user on "%s".',
-                         self._active_root)
+                         self.active_root)
             self.active_root_node.flag_status(FlowStatus.ABORTED)
         elif key in ('u', 'U'):
             logger.debug('Global un-select triggered by user on "%s".',
-                         self._active_root)
+                         self.active_root)
             self.active_root_node.reset_flagged()
         else:
             return key
 
     def update_flow_roots(self):
-        """Update the list of root nodes"""
+        """Update the list of root nodes (aka Tree roots)."""
         active = None
-        if self._active_root and self._active_root in self.flow.tree_roots:
+        if self.active_root and self.active_root in self.flow.tree_roots:
             # keep track of the current active root Node
-            active = self._active_root
-        # Create the list of buttons representing the various root nodes
-        self._roots_radio_group = []
+            active = self.active_root
+        # Order the root nodes given several criteria
         current_time = time.time()
-        #
         sorted_roots = sorted(self.flow.tree_roots,
                               key=lambda x: (current_time - self._roots_hits.get(x.name, 0)
                                              > self.recent_roots_threshold))
-        entries = [urwid.RadioButton(self._roots_radio_group,
+        # Create the list of buttons representing the various root nodes
+        roots_radio_group = []
+        entries = [urwid.RadioButton(roots_radio_group,
                                      (tr.status.name, tr.name),
                                      state=(tr.name == active) if active is not None else 'first True',
                                      on_state_change=self.update_root_choice)
                    for tr in sorted_roots]
         # If there is no active root node: active the first root node
         if active is None:
-            self._active_root = list(self.flow.tree_roots)[0].name
-            logger.debug('Switching the active node to "%s" (in update_flow_roots).',
-                         self._active_root)
-        active_index = [b.state for b in self._roots_radio_group].index(True)
-        # Display the active node in the Tree widget
-        self.update_tree(self._active_root)
+            self.active_root = (recent_roots + other_roots)[0].name
         # Update the left column (root nodes widget)
         self.roots_walker.clear()
         self.roots_walker.extend(entries)
+        active_index = [b.state for b in roots_radio_group].index(True)
         self.roots_walker.set_focus(active_index)
 
     def update_root_choice(self, button: urwid.RadioButton, root: str):
         """Triggered when the user selects a new root Node."""
         if root:
-            self.age_auto_update_cancel()
-            self._active_root = button.get_label()
-            self._roots_hits[self._active_root] = time.time()
-            logger.debug('Switching the active node to "%s" (requested by the user).',
-                         self._active_root)
-            if not self.flow.in_cache(self._active_root):
-                self.listbox.body = self.listbox_void_walker
-                self.app.loop.draw_screen()
-            self.update_flow_roots()
+            new_active_root = button.get_label()
+            with self.listbox.temporary_void_display(
+                    not self.flow.in_cache(new_active_root)):
+                self.active_root = new_active_root
+                self._roots_hits[self.active_root] = time.time()
+                # Because the order of the items might change...
+                self.update_flow_roots()
             self.main_columns.focus_position = 1  # Jump to the tree
 
-    def update_focused_node(self, root_f_node):
+    def update_focused_node(self):
         """Keep track of the focused flow node."""
-        f_node = self.listbox.body.get_focus()[1].flow_node
+        f_node = self.listbox.actual_walker.get_focus()[1].flow_node
         if f_node is not None:
-            root_f_node.focused = f_node
+            self.active_root_node.focused = f_node
 
     def age_auto_update(self, current_loop: urwid.MainLoop, registered_root: str):
         """Increment the root Node age."""
         self._active_root_timer = None
-        if self._active_root == registered_root:
-            root_f_node = self.active_root_node
+        if self.active_root == registered_root:
+            try:
+                root_f_node = self.active_root_node
+            except ValueError:
+                # If the tree root does not exists anymore in the scheduler...
+                root_f_node = None
             if root_f_node is not None:
                 self.header_update("Information is {:.0f} seconds old."
                                    .format(root_f_node.age))
@@ -607,18 +683,10 @@ class TFlowMainView(TFlowAbstractView):
                     user_data=registered_root
                 )
 
-    def age_auto_update_cancel(self):
-        """Cancel the age updater."""
-        if self._active_root_timer is not None:
-            logger.debug('Cancelling active timer: %s', self._active_root_timer)
-            self.app.loop.remove_alarm(self._active_root_timer)
-            self._active_root_timer = None
-
     def update_tree(self, root: str):
-        """Display the **root** root Node in the Tree widget."""
-        self.age_auto_update_cancel()
+        """Display the **root** node in the Tree widget."""
         root_f_node = self.flow.full_status(root)
-        # Last selected entry
+        # Find out what should be the selected entry. Start with the last selected...
         focused_node = root_f_node.focused
         if focused_node is None:
             # Otherwise, start on the first expanded leaf
@@ -626,46 +694,46 @@ class TFlowMainView(TFlowAbstractView):
         if focused_node is None:
             # Otherwise start from top
             focused_node = root_f_node
+        # Ok, let's update the TreeView
         if len(focused_node) or focused_node.parent is None:
-            self.listbox_f_node = FamilyNode(focused_node, focused_node.path)
+            self.listbox.actual_node = FamilyNode(focused_node, focused_node.path)
         else:
-            self.listbox_f_node = TaskNode(focused_node, focused_node.path,
-                                           FamilyNode(focused_node.parent,
-                                                      focused_node.parent.path))
-        self.listbox.body = urwid.TreeWalker(self.listbox_f_node)
+            self.listbox.actual_node = TaskNode(focused_node, focused_node.path,
+                                                FamilyNode(focused_node.parent,
+                                                           focused_node.parent.path))
         # Keep track of the focused node
-        urwid.connect_signal(self.listbox.body, 'modified',
-                             self.update_focused_node, root_f_node)
+        urwid.connect_signal(self.listbox.actual_walker,
+                             'modified',
+                             self.update_focused_node)
         logger.debug('Tree updated for "%s" (information is %f seconds old). Focusing "%s".',
-                     self._active_root, root_f_node.age, focused_node.path)
+                     root, root_f_node.age, focused_node.path)
+        # Display the Root node age
         self.header_update("Information is {:.0f} seconds old."
                            .format(root_f_node.age))
-        self._active_root_timer = self.app.loop.set_alarm_in(
-            self.timer_interval,
-            self.age_auto_update,
-            user_data=root,
-        )
-        logger.debug('Update timer for age update is: %s (for %s)',
-                     self._active_root_timer, root)
+        # Start an age updater if needed
+        if self._active_root_timer is None:
+            self._active_root_timer = self.app.loop.set_alarm_in(
+                self.timer_interval,
+                self.age_auto_update,
+                user_data=root,
+            )
+            logger.debug('Timer for age update is: %s (for %s)',
+                         self._active_root_timer, root)
 
     def flow_refresh(self):
         """Refresh all the data."""
-        self.age_auto_update_cancel()
-        logger.debug('Refresh triggered by user on "%s".', self._active_root)
-        self.listbox.body = self.listbox_void_walker
-        self.app.loop.draw_screen()
-        self.flow.refresh(self._active_root)
-        self.update_flow_roots()
+        logger.debug('Refresh triggered by user on "%s".', self.active_root)
+        with self.listbox.temporary_void_display():
+            self.flow.refresh(self.active_root)
 
     def reset_folding(self):
         """Restore the original folding of the Tree widget."""
-        logger.debug('Folding reset triggered by user on "%s".', self._active_root)
-        self.listbox_f_node.reset_folding()
+        logger.debug('Folding reset triggered by user on "%s".', self.active_root)
+        self.listbox.actual_node.reset_folding()
 
     def command_dialog(self):
         """Open the command dialog"""
-        self.age_auto_update_cancel()
-        logger.debug('Command dialog requested by user on "%s".', self._active_root)
+        logger.debug('Command dialog requested by user on "%s".', self.active_root)
         c_view = TFlowCommandView(self.flow, self.app,
                                   root_node=self.active_root_node)
         self.app.switch_view(c_view)
