@@ -3,7 +3,7 @@
 The ``tflowclient`` package (Text-based workFlow scheduler Client) provides all
 the necessary bits to build text-based console clients to interact with
 various workflow schedulers. For now, only ``SMS`` is supported: see the
-``bin/tflowclient_sms.py`` executable.
+``bin/tflowclient_cdp.py`` executable.
 
 ## Requirements & Dependencies
 
@@ -12,7 +12,7 @@ The ``tflowclient`` package is not compatible with Python 2.7.
 The ``tflowclient`` package itself only depends on the non-standard ``urwid``
 package that is available on PyPi.
 
-To use the ``bin/tflowclient_sms.py`` executable, a ``cdp`` executable needs to
+To use the ``bin/tflowclient_cdp.py`` executable, a ``cdp`` executable needs to
 be available in the system's path. Otherwise, its path can be specified in the
 user-specific configuration file ``~/.tflowclientrc.ini``.
 

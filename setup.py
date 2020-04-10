@@ -9,12 +9,11 @@ def readme():
 
 
 setup(name='tflowview',
-      version='0.1',
+      version='0.2',
       description='A text-based viewer for ECMWF workflow schedulers.',
       long_description=readme(),
       classifiers=[
-        'Development Status :: 3 - Alpha',
-        'Environment :: Console :: Curses',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Science/Research',
         'Natural Language :: English',
         'License :: CeCILL-C Free Software License Agreement (CECILL-C)',
@@ -27,7 +26,9 @@ setup(name='tflowview',
       license='CECILL-C',
       package_dir={'tflowclient': 'src/tflowclient'},
       packages=['tflowclient'],
-      scripts=['bin/tflowclient_cdp.py'],
+      scripts=['bin/tflowclient_cdp.py',
+               'bin/tflowclient_demo.py',
+               'bin/tflowclient_dumppalette.py'],
       install_requires=[
           'urwid',
       ],
