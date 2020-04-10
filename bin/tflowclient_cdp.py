@@ -75,5 +75,6 @@ if __name__ == '__main__':
     cdp = cdp_flow.CdpInterface(args.suite)
     cdp.credentials = dict(cdp_path=args.cdp, host=args.server, user=args.user,
                            password=password)
-    app = TFlowApplication(cdp)
-    app.main()
+    with cdp:
+        app = TFlowApplication(cdp)
+        app.main()

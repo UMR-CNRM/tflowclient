@@ -16,5 +16,6 @@ from tflowclient import demo_flow
 if __name__ == '__main__':
     tflowclient_conf.logging_config()
     demo = demo_flow.DemoFlowInterface('fakesuite')
-    app = TFlowApplication(demo)
-    app.main()
+    with demo:
+        app = TFlowApplication(demo)
+        app.main()

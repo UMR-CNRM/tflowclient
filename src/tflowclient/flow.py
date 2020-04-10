@@ -19,7 +19,9 @@ import abc
 import collections
 from enum import Enum, unique
 import logging
+import signal
 import time
+import traceback
 import typing
 
 from . import observer
@@ -292,6 +294,39 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         self._credentials = None
         self._tree_roots = None
         self._full_statuses = dict()
+
+    def _initialise_connection(self):
+        """Sometime, it is necessary to connect somewhere."""
+        pass
+
+    def _close_connection(self):
+        """Sometime, it is necessary to close some active connections."""
+        pass
+
+    def __enter__(self):
+        logger.debug('Entering in FlowInterface. Calling "_initialise_connection"')
+        self._initialise_connection()
+
+        # Catch all signals and raise an exception
+        def handler(signum, frame):
+            raise BaseException('Signal {:d} was caught.'.format(signum))
+
+        all_signals = {signal.SIGHUP, signal.SIGINT, signal.SIGQUIT,
+                       signal.SIGPIPE, signal.SIGTRAP, signal.SIGABRT,
+                       signal.SIGFPE, signal.SIGUSR1, signal.SIGUSR2,
+                       signal.SIGTERM}
+        logger.debug("Installing handler for all signals: %s", all_signals)
+        for sig in all_signals:
+            signal.signal(sig, handler)
+
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_val:
+            logger.error('An un-handled "%s" occurred: %s', exc_type, exc_val)
+            logger.error('Traceback:\n%s', ''.join(traceback.format_tb(exc_tb)))
+        logger.debug('Exiting FlowInterface. Calling "_close_connection"')
+        self._close_connection()
 
     def __str__(self):
         return 'suite {:s} ({:s})'.format(self.suite, self.credentials_summary)
