@@ -620,6 +620,14 @@ class TFlowMainView(TFlowAbstractView, Observer):
         else:
             return key
 
+    def _radio_buttons_list(self, b_group: list, active: str,
+                            roots: typing.List[FlowNode]) -> typing.List[urwid.RadioButton]:
+        return [urwid.RadioButton(b_group,
+                                  (tr.status.name, tr.name),
+                                  state=(tr.name == active) if active is not None else 'first True',
+                                  on_state_change=self.update_root_choice)
+                for tr in roots]
+
     def update_flow_roots(self):
         """Update the list of root nodes (aka Tree roots)."""
         active = None
@@ -628,16 +636,21 @@ class TFlowMainView(TFlowAbstractView, Observer):
             active = self.active_root
         # Order the root nodes given several criteria
         current_time = time.time()
-        sorted_roots = sorted(self.flow.tree_roots,
-                              key=lambda x: (current_time - self._roots_hits.get(x.name, 0)
-                                             > self.recent_roots_threshold))
+        recent_roots = []
+        other_roots = []
+        for root_node in self.flow.tree_roots:
+            age = current_time - self._roots_hits.get(root_node.name, 0)
+            if age > self.recent_roots_threshold:
+                other_roots.append(root_node)
+            else:
+                recent_roots.append(root_node)
+        recent_roots.sort(key=lambda x: x.name)
+        other_roots.sort(key=lambda x: (x.status.value, x.name))
         # Create the list of buttons representing the various root nodes
         roots_radio_group = []
-        entries = [urwid.RadioButton(roots_radio_group,
-                                     (tr.status.name, tr.name),
-                                     state=(tr.name == active) if active is not None else 'first True',
-                                     on_state_change=self.update_root_choice)
-                   for tr in sorted_roots]
+        entries = (self._radio_buttons_list(roots_radio_group, active, recent_roots)
+                   + [urwid.Text('-')]
+                   + self._radio_buttons_list(roots_radio_group, active, other_roots))
         # If there is no active root node: active the first root node
         if active is None:
             self.active_root = (recent_roots + other_roots)[0].name

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import abc
 import collections
-from enum import Enum, auto
+from enum import Enum, unique
 import logging
 import time
 import typing
@@ -29,15 +29,16 @@ __all__ = ["FlowStatus", "FlowNode", "RootFlowNode", "FlowInterface"]
 logger = logging.getLogger(__name__)
 
 
+@unique
 class FlowStatus(Enum):
     """Possible statuses for any family or task."""
-    COMPLETE = auto()
-    QUEUED = auto()
-    SUSPENDED = auto()
-    ABORTED = auto()
-    SUBMITTED = auto()
-    ACTIVE = auto()
-    UNKNOWN = auto()
+    ABORTED = 0
+    SUBMITTED = 1
+    ACTIVE = 2
+    QUEUED = 3
+    SUSPENDED = 4
+    COMPLETE = 5
+    UNKNOWN = 6
 
 
 class FlowNode(observer.Subject):
