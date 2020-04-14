@@ -27,6 +27,7 @@ from __future__ import annotations
 import collections
 import contextlib
 import logging
+import subprocess
 import time
 import typing
 
@@ -35,6 +36,7 @@ import urwid.curses_display
 
 from .conf import tflowclient_conf
 from .flow import FlowInterface, FlowNode, RootFlowNode, FlowStatus
+from .logs_gateway import LogsGatewayRuntimeError
 from .observer import Observer
 
 __all__ = ['TFlowApplication']
@@ -512,6 +514,83 @@ class TFlowCommandView(TFlowAbstractView):
                 return key
 
 
+class TFlowLogsView(TFlowAbstractView):
+    """The view that is triggered when the user chooses to browse the log files."""
+
+    footer_text = [[('key', 'ESC/BACKSPACE'), ': back to statuses'],
+                   [('key', 'ENTER/SPACE'), ': view the selected file']]
+
+    def __init__(self, flow_object: FlowInterface, app_object: TFlowApplication, root_node: RootFlowNode):
+        """
+        :param flow_object: The flow object currently being used
+        :param app_object: The application object
+        :param root_node: The current active root FlowNode
+        """
+        super().__init__(flow_object, app_object)
+        self.focused_node = root_node.focused
+        self.focused_path = (self.flow.suite + '/' + self.focused_node.path
+                             if self.focused_node is not None else None)
+        self.buttons = []
+        if self.focused_node is None:
+            self.text_container = urwid.Text("No node is currently focused. Please pick one.")
+        elif len(self.focused_node):
+            self.text_container = urwid.Text("The focused node ({:s}) is not a leaf node (i.e. a Task)."
+                                             .format(self.focused_path))
+        else:
+            try:
+                av_listings = self.flow.logs.list_file(self.focused_path)
+            except LogsGatewayRuntimeError as e:
+                # This step may fail (network problems, ...)
+                self.text_container = urwid.Text([('warning',
+                                                   "An un-expected error occured while fetching the "
+                                                   + "list of available log files:\n{!s}".format(e))])
+                logger.error("Error while fetching log files list for path '%s':\n%s",
+                             self.focused_path, e)
+            else:
+                if av_listings:
+                    self.text_container = urwid.Text("For node: {:s}\n\nThe available log files are:\n"
+                                                     .format(self.focused_path))
+                    b_group = list()
+                    self.buttons = [urwid.Button(listing, on_press=self._button_pressed)
+                                    for listing in av_listings]
+                else:
+                    self.text_container = urwid.Text("No log files are available for:\n{:s}"
+                                                     .format(self.focused_path))
+        if self.buttons:
+            self.pile = urwid.Pile([
+                urwid.Filler(self.text_container, valign='bottom'),
+                urwid.ListBox(urwid.SimpleFocusListWalker(self.buttons))
+            ])
+            self.main_content = KeyCaptureWrapper(self.pile, current_view=self)
+        else:
+            self.main_content = KeyCaptureWrapper(urwid.Filler(self.text_container),
+                                                  current_view=self, propagate=False)
+
+    def _button_pressed(self, button: urwid.Button):
+        """Triggered when a button is pressed (e.g. when a log file is chosen)."""
+        log_file = button.get_label()
+        try:
+            with self.flow.logs.get_as_file(self.focused_path, log_file) as f_obj:
+                subprocess.check_call(['vim', '-R', '-N', f_obj.name])
+        except LogsGatewayRuntimeError as e:
+            # This step may fail (network problems, ...)
+            self.text_container.set_text([('warning',
+                                           'An error occured while fetching the "{:s}" listing: {!s}'
+                                           .format(log_file, e)),
+                                          '\n\n', self.text_container.text])
+            logger.error("Error while fetching '%s' for path '%s':\n%s",
+                         log_file, self.focused_path, e)
+        # Redraw the whole screen (because, vim will have messed things up...)
+        self.app.loop.screen.clear()
+
+    def keypress_hook(self, key: str) -> typing.Union[str, None]:
+        """Handle key strokes."""
+        if key in ('esc', 'backspace'):
+            self.app.switch_view(self.app.main_view)
+        else:
+            return key
+
+
 class TFlowMainView(TFlowAbstractView, Observer):
     """The application' main view (statuses tree)."""
 
@@ -534,6 +613,8 @@ class TFlowMainView(TFlowAbstractView, Observer):
         :param flow_object: The flow object currently being used
         :param app_object: The application object
         """
+        if flow_object.logs is not None:
+            self.footer_text = self.footer_text + [[('key', "L"), ': Access Logs']]
         super().__init__(flow_object, app_object)
         # Create the "Tree" widget
         void_node = FamilyNode(
@@ -609,6 +690,8 @@ class TFlowMainView(TFlowAbstractView, Observer):
             self.reset_folding()
         elif key in ('c', 'C'):
             self.command_dialog()
+        elif key in ('l', 'L') and self.flow.logs is not None:
+            self.logs_dialog()
         elif key in ('a', 'A'):
             logger.debug('Aborted tasks selection triggered by user on "%s".',
                          self.active_root)
@@ -707,6 +790,8 @@ class TFlowMainView(TFlowAbstractView, Observer):
         if focused_node is None:
             # Otherwise start from top
             focused_node = root_f_node
+        if focused_node is not None:
+            root_f_node.focused = focused_node
         # Ok, let's update the TreeView
         if len(focused_node) or focused_node.parent is None:
             self.listbox.actual_node = FamilyNode(focused_node, focused_node.path)
@@ -751,6 +836,13 @@ class TFlowMainView(TFlowAbstractView, Observer):
                                   root_node=self.active_root_node)
         self.app.switch_view(c_view)
 
+    def logs_dialog(self):
+        """Open the log files view dialog"""
+        logger.debug('Logs dialog requested by user on "%s".', self.active_root)
+        l_view = TFlowLogsView(self.flow, self.app,
+                               root_node=self.active_root_node)
+        self.app.switch_view(l_view)
+
 
 # ------ Application object:  The UI entry point ! -------
 
@@ -768,14 +860,15 @@ class TFlowApplication(object):
         screen = (urwid.curses_display.Screen()
                   if tflowclient_conf.urwid_backend == 'curses' else
                   urwid.raw_display.Screen())
-        t_properties = tflowclient_conf.terminal_properties
-        screen.set_terminal_properties(** t_properties)
+        logger.debug('Creating the urwid main loop. Screen is: %s', screen)
+        if tflowclient_conf.urwid_backend != 'curses':
+            t_properties = tflowclient_conf.terminal_properties
+            screen.set_terminal_properties(** t_properties)
+            logger.debug('Creating the urwid main loop. Terminal properties: %s',
+                         t_properties)
         palette = tflowclient_conf.palette
         logger.debug('Creating the urwid main loop. Palette is:\n  %s',
                      '\n  '.join([str(item) for item in palette]))
-        logger.debug('Creating the urwid main loop. Screen is: %s', screen)
-        logger.debug('Creating the urwid main loop. Terminal properties: %s',
-                     t_properties)
         self.loop = urwid.MainLoop(self.view, palette, screen=screen,
                                    unhandled_input=self.unhandled_input)
         # Create the Main (tree) view and display it

@@ -14,6 +14,7 @@ import time
 import typing
 
 from . flow import FlowInterface, FlowNode, RootFlowNode, FlowStatus
+from . logs_gateway import LogsGateway, get_logs_gateway
 
 __all__ = ['DemoFlowInterface']
 
@@ -112,3 +113,7 @@ class DemoFlowInterface(FlowInterface):
     do_resume = _any_command
     do_complete = _any_command
     do_requeue = _any_command
+
+    def _logs_gateway_create(self) -> LogsGateway:
+        """Create a demo LogsGateway object."""
+        return get_logs_gateway(kind='demo')

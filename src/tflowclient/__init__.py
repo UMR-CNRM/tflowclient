@@ -20,8 +20,10 @@ Here are a few pointers for a better understanding of the code:
 * The :mod:`tflowclient.demo_flow` and :mod:`tflowclient.cdp_flow` provide
   concrete implementations of the :class:`tflowclient.flow.FlowInterface`
   abstract class.
-* The :mod:`tflowclient.conf` is an utility module that is used to handle the
+* :mod:`tflowclient.conf` is an utility module that is used to handle the
   configuration data
+* The :mod:`tflowclient.logs_gateway` module makes it possible to list and
+  fetch the some log files for a given task
 * The :mod:`tflowclient.observer` provides a very simple implementation of the
   Observer design pattern.
 

@@ -24,6 +24,7 @@ import time
 import traceback
 import typing
 
+from . import logs_gateway
 from . import observer
 
 __all__ = ["FlowStatus", "FlowNode", "RootFlowNode", "FlowInterface"]
@@ -266,12 +267,12 @@ class RootFlowNode(FlowNode):
         self._c_time = time.time()
 
     @property
-    def focused(self):
+    def focused(self) -> FlowNode:
         """Returns the focused FlowNode within the Tree."""
         return self._focused
 
     @focused.setter
-    def focused(self, value):
+    def focused(self, value: FlowNode):
         """Set the ``_focused`` property."""
         assert isinstance(value, FlowNode)
         self._focused = value
@@ -294,6 +295,8 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         self._credentials = None
         self._tree_roots = None
         self._full_statuses = dict()
+        self._logs_gateway_init = False
+        self._logs_gateway = None
 
     def _initialise_connection(self):
         """Sometime, it is necessary to connect somewhere."""
@@ -483,3 +486,23 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
     def do_requeue(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """Actual implementation of the ``execute`` command."""
         pass
+
+    @property
+    def logs(self):
+        """Return the logs gateway object to be used with this FlowInterface.
+
+        :note: ``None`` may be returned if no log access mechanism is implemented
+               or available for a given FlowInterface.
+        """
+        if not self._logs_gateway_init:
+            self._logs_gateway = self._logs_gateway_create()
+            self._logs_gateway_init = True
+        return self._logs_gateway
+
+    @staticmethod
+    def _logs_gateway_create() -> typing.Union[logs_gateway.LogsGateway, None]:
+        """Create a LogGateway object (the first time it is requested).
+
+        Implement this method in a concrete class
+        """
+        return None
