@@ -596,7 +596,8 @@ class TFlowMainView(TFlowAbstractView, Observer):
 
     footer_text = [
         [('key', "SPACE"), ": Fold/Unfold"],
-        [('key', "F"), ": Reset Folding"],
+        [('key', "D"), ": Default Folding"],
+        [('key', "F"), ": Fold 1st Level"],
         [('key', "R"), ": Refresh"],
         [('key', "ENTER"), ": Select"],
         [('key', "A"), ": Select Aborted"],
@@ -686,8 +687,10 @@ class TFlowMainView(TFlowAbstractView, Observer):
         """Handle key strokes."""
         if key in ('r', 'R'):
             self.flow_refresh()
-        elif key in ('f', 'F'):
+        elif key in ('d', 'D'):
             self.reset_folding()
+        elif key in ('f', 'F'):
+            self.fold_first_level()
         elif key in ('c', 'C'):
             self.command_dialog()
         elif key in ('l', 'L') and self.flow.logs is not None:
@@ -828,6 +831,25 @@ class TFlowMainView(TFlowAbstractView, Observer):
         """Restore the original folding of the Tree widget."""
         logger.debug('Folding reset triggered by user on "%s".', self.active_root)
         self.listbox.actual_node.reset_folding()
+        # Reset the focus to the default selected node
+        self.listbox.actual_walker.set_focus(self.listbox.actual_node)
+
+    def fold_first_level(self):
+        """Fold the nodes located at the first level of the tree."""
+        logger.debug('Folding of the first level triggered by user on "%s".', self.active_root)
+        # Find the root node, and fold its child widgets
+        urwid_root = self.listbox.actual_node.get_root()
+        c_keys = urwid_root.get_child_keys()
+        for c_key in c_keys:
+            child_widget = urwid_root.get_child_widget(c_key)
+            child_widget.expanded = False
+            child_widget.update_expanded_icon()
+        # Select the closest level 1 node (to be consistent with the new folding)
+        _, focused_node = self.listbox.actual_walker.get_focus()
+        if focused_node.get_depth() > 1:
+            while focused_node.get_depth() > 1:
+                focused_node = focused_node.get_parent()
+            self.listbox.actual_walker.set_focus(focused_node)
 
     def command_dialog(self):
         """Open the command dialog"""
