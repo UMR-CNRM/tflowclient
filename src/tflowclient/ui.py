@@ -439,6 +439,11 @@ class TFlowCommandView(TFlowAbstractView):
         # schedulers tree)
         self.selected = ['/' + self.flow.suite + '/' + p
                          for p in root_node.flagged_paths()]
+        if not self.selected:
+            # Try to use the focused_node
+            if root_node.focused is not None and self.app.main_view.focused_tree:
+                self.selected = ['/' + self.flow.suite + '/' + root_node.name
+                                 + '/' + root_node.focused.path]
         if self.selected:
             # Prompt the user to choose a command
             self.text_container = urwid.Text(self._get_message())
@@ -529,10 +534,11 @@ class TFlowLogsView(TFlowAbstractView):
         """
         super().__init__(flow_object, app_object)
         self.focused_node = root_node.focused
-        self.focused_path = (self.flow.suite + '/' + root_node.name + '/' + self.focused_node.path
-                             if self.focused_node is not None else None)
+        self.focused_path = ('/' + self.flow.suite + '/' + root_node.name + '/' + self.focused_node.path
+                             if self.focused_node is not None and self.app.main_view.focused_tree
+                             else None)
         self.buttons = []
-        if self.focused_node is None:
+        if self.focused_path is None:
             self.text_container = urwid.Text("No node is currently focused. Please pick one.")
         elif len(self.focused_node):
             self.text_container = urwid.Text("The focused node ({:s}) is not a leaf node (i.e. a Task)."
@@ -689,6 +695,11 @@ class TFlowMainView(TFlowAbstractView, Observer):
             return self.flow.full_status(self.active_root)
         else:
             return None
+
+    @property
+    def focused_tree(self):
+        """Return **True** if the status tree is currently focused."""
+        return self.main_columns.focus_position == 1
 
     def keypress_hook(self, key: str) -> typing.Union[str, None]:
         """Handle key strokes."""

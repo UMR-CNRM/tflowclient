@@ -192,7 +192,7 @@ class SmsLogSvrGateway(StringBasedLogsGateway):
 
     def _retrieve_files_list(self, path: str) -> typing.Set[str]:
         """Get the log files list (from server)."""
-        f_list = self._query_server('list {:s}/{:s}.0'.format(self.path, path))
+        f_list = self._query_server('list {:s}{:s}.0'.format(self.path, path))
         if f_list:
             f_list = [line.strip(' ').split(' ') for line in f_list.split('\n')
                       if line.strip(' ')]
