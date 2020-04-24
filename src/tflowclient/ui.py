@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import collections
 import contextlib
+from datetime import datetime, timedelta
 import logging
 import subprocess
 import time
@@ -426,7 +427,7 @@ class TFlowCommandView(TFlowAbstractView):
         ('Requeue', '0', 'requeue'),
     ]
 
-    def __init__(self, flow_object: FlowInterface, app_object: TFlowApplication, root_node: FlowNode):
+    def __init__(self, flow_object: FlowInterface, app_object: TFlowApplication, root_node: RootFlowNode):
         """
         :param flow_object: The flow object currently being used
         :param app_object: The application object
@@ -528,7 +529,7 @@ class TFlowLogsView(TFlowAbstractView):
         """
         super().__init__(flow_object, app_object)
         self.focused_node = root_node.focused
-        self.focused_path = (self.flow.suite + '/' + self.focused_node.path
+        self.focused_path = (self.flow.suite + '/' + root_node.name + '/' + self.focused_node.path
                              if self.focused_node is not None else None)
         self.buttons = []
         if self.focused_node is None:
@@ -551,8 +552,14 @@ class TFlowLogsView(TFlowAbstractView):
                     self.text_container = urwid.Text("For node: {:s}\n\nThe available log files are:\n"
                                                      .format(self.focused_path))
                     b_group = list()
-                    self.buttons = [urwid.Button(listing, on_press=self._button_pressed)
-                                    for listing in av_listings]
+                    cur_time = datetime.utcnow()
+                    for listing in av_listings:
+                        l_label = '{:s} ({!s} ago)'.format(listing[0].split('/')[-1],
+                                                           timedelta(seconds=((cur_time - listing[1])
+                                                                              // timedelta(seconds=1))))
+                        self.buttons.append(urwid.Button(l_label,
+                                                         on_press=self._button_pressed,
+                                                         user_data=listing[0]))
                 else:
                     self.text_container = urwid.Text("No log files are available for:\n{:s}"
                                                      .format(self.focused_path))
@@ -566,20 +573,20 @@ class TFlowLogsView(TFlowAbstractView):
             self.main_content = KeyCaptureWrapper(urwid.Filler(self.text_container),
                                                   current_view=self, propagate=False)
 
-    def _button_pressed(self, button: urwid.Button):
+    def _button_pressed(self, button: urwid.Button, log_listing: str):
         """Triggered when a button is pressed (e.g. when a log file is chosen)."""
-        log_file = button.get_label()
+        assert isinstance(button, urwid.Button)
         try:
-            with self.flow.logs.get_as_file(self.focused_path, log_file) as f_obj:
+            with self.flow.logs.get_as_file(self.focused_path, log_listing) as f_obj:
                 subprocess.check_call(['vim', '-R', '-N', f_obj.name])
         except LogsGatewayRuntimeError as e:
             # This step may fail (network problems, ...)
             self.text_container.set_text([('warning',
                                            'An error occured while fetching the "{:s}" listing: {!s}'
-                                           .format(log_file, e)),
+                                           .format(log_listing, e)),
                                           '\n\n', self.text_container.text])
             logger.error("Error while fetching '%s' for path '%s':\n%s",
-                         log_file, self.focused_path, e)
+                         log_listing, self.focused_path, e)
         # Redraw the whole screen (because, vim will have messed things up...)
         self.app.loop.screen.clear()
 

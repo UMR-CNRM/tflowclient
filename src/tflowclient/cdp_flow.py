@@ -19,6 +19,7 @@ import sys
 import typing
 
 from . flow import FlowInterface, RootFlowNode, FlowNode, FlowStatus
+from . logs_gateway import LogsGateway, get_logs_gateway
 
 __all__ = ['SmsRcFileError', 'SmsRcPermissionsError', 'SmsRcReader',
            'CdpOutputParserMixin', 'CdpInterface']
@@ -268,3 +269,30 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
         """The SMS ``rerun`` command."""
         output, _ = self._run_cdp_command('requeue -f {:s}', paths)
         return output
+
+    def _logs_gateway_create(self) -> typing.Union[LogsGateway, None]:
+        """Create a SMS LogsGateway object."""
+        output, _ = self._run_cdp_command('info -v /', ['/', ])
+        re_log_path = re.compile(r'\s*SMSHOME\s*=\s*([^\s]+)')
+        re_log_host = re.compile(r'\s*SMSLOGHOST\s*=\s*([-.\w]+)')
+        re_log_port = re.compile(r'\s*SMSLOGPORT\s*=\s*(\d+)')
+        log_path = None
+        log_host = None
+        log_port = None
+        for line in output.split('\n'):
+            m_path = re_log_path.match(line)
+            if m_path:
+                log_path = m_path.group(1)
+            m_host = re_log_host.match(line)
+            if m_host:
+                log_host = m_host.group(1)
+            m_port = re_log_port.match(line)
+            if m_port:
+                log_port = int(m_port.group(1))
+        if log_host is not None and log_port is not None:
+            l_gateway = get_logs_gateway(kind='sms_log_svr',
+                                         path=log_path,
+                                         host=log_host, port=log_port)
+            if l_gateway.ping():
+                return l_gateway
+        return None

@@ -10,9 +10,12 @@ Abstract and concrete classes that:
 
 import abc
 import contextlib
+from datetime import datetime
 import io
 import logging
+import os
 import re
+import socket
 import tempfile
 import typing
 
@@ -46,18 +49,28 @@ class LogsGateway(metaclass=abc.ABCMeta):
     def _valid_kwargs(kwargs: dict):
         assert isinstance(kwargs, dict)
 
-    def list_file(self, path: str) -> typing.List[str]:
-        """Return the list of available files for a given task's **path**."""
+    @staticmethod
+    def ping() -> bool:
+        """Returns **True** if the logs gateway works properly."""
+        return True
+
+    def list_file(self, path: str) -> typing.List[typing.Tuple[str, datetime]]:
+        """Return the list of available files for a given task's **path**.
+
+        A list of tuples that contain the filename (or path) to the log file
+        and a datetime object representing the log file modification time (UTC).
+        """
         path_logs = re.compile(r'(.*/)?' + re.escape(path.split('/')[-1])
                                + self._ALLOWED_SUFFIXES)
-        found = sorted({p for p in self._retrieve_files_list(path)
-                        if path_logs.match(p)})
+        found = sorted({data for data in self._retrieve_files_list(path)
+                        if path_logs.match(data[0])},
+                       key=lambda x: (x[1], x[0]), reverse=True)
         logger.debug('Path=%s. Found the following log files: %s.',
                      path, str(found))
         return found
 
     @abc.abstractmethod
-    def _retrieve_files_list(self, path: str) -> typing.Set[str]:
+    def _retrieve_files_list(self, path: str) -> typing.Set[typing.Tuple[str, datetime]]:
         """
         Effectively returns the possibly unfiltered set of available files
         for a given task's **path**.
@@ -86,7 +99,7 @@ class StringBasedLogsGateway(LogsGateway, metaclass=ABCMeta):
     def get_as_file(self, path: str, log_file: str) -> typing.ContextManager[io.TextIOBase]:
         """Return a **log_file** content as a FileIO object (with an 'name' attribute)."""
         with tempfile.NamedTemporaryFile('w+', encoding='utf-8', delete=True,
-                                         prefix='log_{:s}'.format(log_file)) as t_file:
+                                         prefix='log_{:s}'.format(os.path.basename(log_file))) as t_file:
             t_file.write(self.get_as_str(path, log_file))
             t_file.flush()
             yield t_file
@@ -113,22 +126,92 @@ class DemoLogsGateway(StringBasedLogsGateway):
         if kwargs:
             raise ValueError("The DemoLogsGateway takes no additional arguments.")
 
-    def _retrieve_files_list(self, path: str) -> typing.Set[str]:
+    def _retrieve_files_list(self, path: str) -> typing.Set[typing.Tuple[str, datetime]]:
         """Generate some fake log names."""
         basename = path.split('/')[-1]
         # Note: '_some_trash' should be filtered (this is a test)
-        return {'{:s}{:s}'.format(basename, suffix)
-                for suffix in ('.1', '.job1', '.sms', '_some_trash')}
+        return {('{:s}{:s}'.format(basename, suffix),
+                 datetime(2020, 1, 1, 0, 5 * i, 0))
+                for i, suffix in enumerate(('.sms', '.job1', '.1', '_some_trash'))}
 
     def get_as_str(self, path: str, log_file: str) -> str:
         """Return a **log_file** content as a string."""
         return _DEMO_LOG_FILE_TPL.format(path, log_file)
 
 
+class SmsLogSvrGateway(StringBasedLogsGateway):
+    """Interact with the "official" SMS log server.
+
+    This class needs to be provided with a **host** name and **port** number
+    at object creation time.
+
+    The :class:`LogsGatewayRuntimeError` exception will be raised if an error
+    occurs when communicating with the server.
+    """
+
+    _SOCKET_BUFFER_SIZE = 64 * 1024  # 64Kb
+    _RESULT_MAX_SIZE = 64 * 1024 * 1024  # 64Mb
+
+    @staticmethod
+    def _valid_kwargs(kwargs):
+        if set(kwargs.keys()) != {'host', 'port', 'path'}:
+            raise ValueError("path, host and port attributes are required.")
+        kwargs['path'] = kwargs['path'].rstrip('/')
+
+    def _query_server(self, command: str,
+                      connect_timeout: int = 5, send_timeout: int = 15) -> str:
+        """Send a **command** to the log server end get its answer."""
+        response = b''
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+                client.setblocking(True)
+                client.settimeout(connect_timeout)
+                client.connect((self.host, self.port))
+                client.settimeout(send_timeout)
+                client.sendall(command.encode(encoding='utf-8') + b'\n')
+                while len(response) < self._RESULT_MAX_SIZE:
+                    data = client.recv(self._SOCKET_BUFFER_SIZE)
+                    if not data:
+                        break
+                    response += data
+        except OSError as e:
+            logger.error('Error when talking to the SMS log server (%s:%d):    \n%s',
+                         self.host, self.port, str(e))
+            raise LogsGatewayRuntimeError('Error when talking to the SMS log server ({:s}:{:d})'
+                                          .format(self.host, self.port))
+        return response.decode(encoding='utf-8')
+
+    def ping(self, connect_timeout: int = 2) -> bool:
+        """Try a dummy request just to check if the log_server is fine."""
+        try:
+            self._query_server('list {:s}/fakesuite/fakexp/task.0'.format(self.path),
+                               connect_timeout=connect_timeout)
+        except LogsGatewayRuntimeError:
+            return False
+        return True
+
+    def _retrieve_files_list(self, path: str) -> typing.Set[str]:
+        """Get the log files list (from server)."""
+        f_list = self._query_server('list {:s}/{:s}.0'.format(self.path, path))
+        if f_list:
+            f_list = [line.strip(' ').split(' ') for line in f_list.split('\n')
+                      if line.strip(' ')]
+            return {(entry[-1], datetime.utcfromtimestamp(int(entry[5])))
+                    for entry in f_list if entry}
+        else:
+            return set()
+
+    def get_as_str(self, path: str, log_file: str) -> str:
+        """Return a **log_file** content as a string."""
+        return self._query_server('get {:s}'.format(log_file))
+
+
 def get_logs_gateway(kind: str, **kwargs) -> LogsGateway:
     """A simple factory method for LogsGateway classes."""
     if kind == 'demo':
         return DemoLogsGateway(** kwargs)
+    elif kind == 'sms_log_svr':
+        return SmsLogSvrGateway(** kwargs)
     else:
         raise ValueError('No logs gateway is available for kin="%s"'
                          .format(kind))
