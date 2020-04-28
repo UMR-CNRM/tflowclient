@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 @unique
 class FlowStatus(Enum):
     """Possible statuses for any family or task."""
+
     ABORTED = 0
     SUBMITTED = 1
     ACTIVE = 2
@@ -62,10 +63,12 @@ class FlowNode(observer.Subject):
 
     """
 
-    EXPANDED_STATUSES = {FlowStatus.UNKNOWN,
-                         FlowStatus.ACTIVE,
-                         FlowStatus.ABORTED,
-                         FlowStatus.SUBMITTED}
+    EXPANDED_STATUSES = {
+        FlowStatus.UNKNOWN,
+        FlowStatus.ACTIVE,
+        FlowStatus.ABORTED,
+        FlowStatus.SUBMITTED,
+    }
 
     def __init__(self, name: str, status: FlowStatus, parent: FlowNode = None):
         """
@@ -111,7 +114,7 @@ class FlowNode(observer.Subject):
     def flagged(self, value):
         """Set the ``flagged`` property."""
         self._flagged = bool(value)
-        self._notify({'flagged': self.flagged})
+        self._notify({"flagged": self.flagged})
 
     @property
     def path(self):
@@ -121,7 +124,7 @@ class FlowNode(observer.Subject):
         while current is not None:
             s_path.append(current.name)
             current = current.parent
-        return '/'.join(reversed(s_path[:-1]))
+        return "/".join(reversed(s_path[:-1]))
 
     def set_expanded(self):
         """Set the `expanded` on this node and all its parents."""
@@ -145,9 +148,9 @@ class FlowNode(observer.Subject):
         Creates a string representation of the current node with a given
         **level** indentation.
         """
-        me = ['{0:s}[{1.status.name:s}]_{1.name:s}'.format('  ' * level, self)]
+        me = ["{0:s}[{1.status.name:s}]_{1.name:s}".format("  " * level, self)]
         me.extend([child.indented_str(level + 1) for child in self])
-        return '\n'.join(me)
+        return "\n".join(me)
 
     def __str__(self):
         """Creates a string representation of the current node with a given."""
@@ -156,8 +159,7 @@ class FlowNode(observer.Subject):
     def __eq__(self, other):
         if not isinstance(other, FlowNode):
             return False
-        identical = (self.name == other.name
-                     and self.status == other.status)
+        identical = self.name == other.name and self.status == other.status
         identical = identical and len(self) == len(other)
         if identical:
             for s_child, o_child in zip(self, other):
@@ -191,7 +193,7 @@ class FlowNode(observer.Subject):
         """
         if path:
             node = self
-            for item in path.split('/'):
+            for item in path.split("/"):
                 node = node[item]
             return node
         else:
@@ -212,7 +214,7 @@ class FlowNode(observer.Subject):
     def iter_flagged_paths(self, path_base: str) -> list:
         """Internal method: iterate through the nodes tree."""
         flagged = list()
-        path_base = (path_base + '/' if path_base else '') + self.name
+        path_base = (path_base + "/" if path_base else "") + self.name
         if self.flagged:
             flagged.append(path_base)
         for c_node in self:
@@ -224,7 +226,7 @@ class FlowNode(observer.Subject):
         Return a list of paths to objects that are currently ``flagged`` below
         the current node.
         """
-        return self.iter_flagged_paths('')
+        return self.iter_flagged_paths("")
 
     def flag_status(self, status: FlowStatus, leaf: bool = True):
         """Recursively flag all the nodes that correspond to a given **status**.
@@ -287,8 +289,7 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         :param min_refresh_interval: Do not refresh the statuses if they are
                                      less then X seconds old.
         """
-        logger.info('Initialising "%s" for suite="%s".',
-                    str(self.__class__), suite)
+        logger.info('Initialising "%s" for suite="%s".', str(self.__class__), suite)
         super().__init__()
         self._suite = suite
         self._min_refresh_interval = min_refresh_interval
@@ -312,12 +313,20 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
 
         # Catch all signals and raise an exception
         def handler(signum, frame):
-            raise BaseException('Signal {:d} was caught.'.format(signum))
+            raise BaseException("Signal {:d} was caught.".format(signum))
 
-        all_signals = {signal.SIGHUP, signal.SIGINT, signal.SIGQUIT,
-                       signal.SIGPIPE, signal.SIGTRAP, signal.SIGABRT,
-                       signal.SIGFPE, signal.SIGUSR1, signal.SIGUSR2,
-                       signal.SIGTERM}
+        all_signals = {
+            signal.SIGHUP,
+            signal.SIGINT,
+            signal.SIGQUIT,
+            signal.SIGPIPE,
+            signal.SIGTRAP,
+            signal.SIGABRT,
+            signal.SIGFPE,
+            signal.SIGUSR1,
+            signal.SIGUSR2,
+            signal.SIGTERM,
+        }
         logger.debug("Installing handler for all signals: %s", all_signals)
         for sig in all_signals:
             signal.signal(sig, handler)
@@ -327,12 +336,12 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_val:
             logger.error('An un-handled "%s" occurred: %s', exc_type, exc_val)
-            logger.error('Traceback:\n%s', ''.join(traceback.format_tb(exc_tb)))
+            logger.error("Traceback:\n%s", "".join(traceback.format_tb(exc_tb)))
         logger.debug('Exiting FlowInterface. Calling "_close_connection"')
         self._close_connection()
 
     def __str__(self):
-        return 'suite {:s} ({:s})'.format(self.suite, self.credentials_summary)
+        return "suite {:s} ({:s})".format(self.suite, self.credentials_summary)
 
     @property
     def suite(self) -> str:
@@ -349,15 +358,18 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
 
     def _get_credentials(self) -> dict:
         if self._credentials is None:
-            raise RuntimeError('Set credentials first')
+            raise RuntimeError("Set credentials first")
         return self._credentials.copy()
 
     def _set_credentials(self, credentials: dict):
         self._credentials = self._valid_credentials(credentials)
-        logger.debug('Credentials are: %s', self.credentials_summary)
+        logger.debug("Credentials are: %s", self.credentials_summary)
 
-    credentials = property(_get_credentials, _set_credentials,
-                           doc="The credentials used to login to the workflow scheduler.")
+    credentials = property(
+        _get_credentials,
+        _set_credentials,
+        doc="The credentials used to login to the workflow scheduler.",
+    )
 
     @property
     @abc.abstractmethod
@@ -366,10 +378,12 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         Return a string representing the credential used to connect to the
         Workflow scheduler server.
         """
-        return ''
+        return ""
 
     @abc.abstractmethod
-    def _valid_credentials(self, credentials: typing.Dict[str, str]) -> typing.Dict[str, str]:
+    def _valid_credentials(
+        self, credentials: typing.Dict[str, str]
+    ) -> typing.Dict[str, str]:
         """Ensure that the credential provided by the user are valid."""
         return dict()
 
@@ -385,14 +399,15 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
             self._tree_roots = self._retrieve_tree_roots()
             self._notify_tree_roots()
         if self._tree_roots is None or len(self._tree_roots) == 0:
-            raise RuntimeError('suite={:s} does not exists or is empty'
-                               .format(self.suite))
+            raise RuntimeError(
+                "suite={:s} does not exists or is empty".format(self.suite)
+            )
         return self._tree_roots
 
     def _set_tree_roots(self, value: RootFlowNode):
         """Register a new list of tree root nodes."""
         if value == self._tree_roots:
-            logger.debug('Refresh has been done but no changes in tree roots.')
+            logger.debug("Refresh has been done but no changes in tree roots.")
             self._tree_roots.touch()
         else:
             self._tree_roots = value
@@ -401,12 +416,11 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def _retrieve_tree_roots(self) -> RootFlowNode:
         """Retrieve the list of root nodes form the workflow scheduler server."""
-        return RootFlowNode('fake', FlowStatus.ABORTED)
+        return RootFlowNode("fake", FlowStatus.ABORTED)
 
     def _notify_status(self, path: str):
         """Notify status changes to observers."""
-        self._notify(dict(full_status=dict(path=path,
-                                           node=self._full_statuses[path])))
+        self._notify(dict(full_status=dict(path=path, node=self._full_statuses[path])))
 
     def in_cache(self, path: str) -> bool:
         """Check if a given **path** is already cached."""
@@ -415,8 +429,9 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
     def full_status(self, path: str) -> RootFlowNode:
         """Return the full statuses tree for a given root node (**path**)."""
         if path not in self.tree_roots:
-            raise ValueError("The path base node {!s} is not in the tree roots list."
-                             .format(path))
+            raise ValueError(
+                "The path base node {!s} is not in the tree roots list.".format(path)
+            )
         if path not in self._full_statuses:
             logger.debug('Status for "%s" is not yet cached.', path)
             self._full_statuses[path] = self._retrieve_status(path)
@@ -435,7 +450,7 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def _retrieve_status(self, path: str) -> RootFlowNode:
         """Retrieve the full statuses tree for the **path** root node."""
-        return RootFlowNode('fake', FlowStatus.ABORTED)
+        return RootFlowNode("fake", FlowStatus.ABORTED)
 
     def refresh(self, path: str):
         """
@@ -444,18 +459,21 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         """
         # Update the node's status
         logger.info('Status refresh requested by the user (for "%s").', path)
-        if (path not in self._full_statuses
-                or self._full_statuses[path].age >= self.min_refresh_interval):
+        if (
+            path not in self._full_statuses
+            or self._full_statuses[path].age >= self.min_refresh_interval
+        ):
             self._set_full_status(path, self._retrieve_status(path))
         # Update tree roots...
         if self.tree_roots.age > self.min_refresh_interval:
             self._set_tree_roots(self._retrieve_tree_roots())
 
-    def command_gateway(self, command: str, root_node: FlowNode,
-                        paths: typing.List[str]) -> str:
+    def command_gateway(
+        self, command: str, root_node: FlowNode, paths: typing.List[str]
+    ) -> str:
         """Launch **command** on the *paths* list of nodes."""
         logger.info('Calling the "%s" command on:\n  %s', command, "\n  ".join(paths))
-        return getattr(self, 'do_{:s}'.format(command))(root_node, paths)
+        return getattr(self, "do_{:s}".format(command))(root_node, paths)
 
     @abc.abstractmethod
     def do_rerun(self, root_node: FlowNode, paths: typing.List[str]) -> str:

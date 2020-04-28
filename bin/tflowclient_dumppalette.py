@@ -8,12 +8,15 @@ usable in the configuration file.
 
 from tflowclient.conf import TFlowClientConfig
 
-if __name__ == '__main__':
-    palette = TFlowClientConfig(conf_txt='').palette
-    print('[palette]')
+if __name__ == "__main__":
+    palette = TFlowClientConfig(conf_txt="").palette
+    print("[palette]")
     for line in palette:
-        print('{:s} = {:s}'
-              .format(line[0],
-                      ', '.join(['+'.join(i) if isinstance(i, tuple) else i
-                                 for i in line[1:]]))
-              )
+        print(
+            "{:s} = {:s}".format(
+                line[0],
+                ", ".join(
+                    ["+".join(i) if isinstance(i, tuple) else i for i in line[1:]]
+                ),
+            )
+        )

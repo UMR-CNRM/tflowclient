@@ -13,10 +13,10 @@ import logging
 import time
 import typing
 
-from . flow import FlowInterface, FlowNode, RootFlowNode, FlowStatus
-from . logs_gateway import LogsGateway, get_logs_gateway
+from .flow import FlowInterface, FlowNode, RootFlowNode, FlowStatus
+from .logs_gateway import LogsGateway, get_logs_gateway
 
-__all__ = ['DemoFlowInterface']
+__all__ = ["DemoFlowInterface"]
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class DemoFlowInterface(FlowInterface):
         Return a string representing the credential used to connect to the
         Workflow scheduler server.
         """
-        return 'fakeuser@fakeserver'
+        return "fakeuser@fakeserver"
 
     def _valid_credentials(self, credentials: dict) -> dict:
         """This is an abstract method: we need to implement it.
@@ -43,19 +43,18 @@ class DemoFlowInterface(FlowInterface):
         """Create a fake list of root nodes for our workflow definition."""
         rfn = RootFlowNode(self.suite, FlowStatus.ACTIVE)
         for i_x in range(2):
-            rfn.add('{:04d}'.format(i_x), FlowStatus.COMPLETE)
-        rfn.add('{:04d}'.format(2), FlowStatus.ABORTED)
+            rfn.add("{:04d}".format(i_x), FlowStatus.COMPLETE)
+        rfn.add("{:04d}".format(2), FlowStatus.ABORTED)
         for i_x in range(3, 80):
-            rfn.add('{:04d}'.format(i_x), FlowStatus.SUSPENDED)
-        logger.debug('Got tree roots statuses:\n%s', rfn)
+            rfn.add("{:04d}".format(i_x), FlowStatus.SUSPENDED)
+        logger.debug("Got tree roots statuses:\n%s", rfn)
         return rfn
 
     @staticmethod
     def _generic_flow_node(path, top_status=None, overall_status=None):
         """Create fake family/tasks tree for our workflow definition."""
         time.sleep(1)
-        rfn = RootFlowNode(path,
-                           top_status or overall_status or FlowStatus.ABORTED)
+        rfn = RootFlowNode(path, top_status or overall_status or FlowStatus.ABORTED)
         for i_f in range(15):
             f_status = FlowStatus.QUEUED
             ff_status = FlowStatus.QUEUED
@@ -65,40 +64,56 @@ class DemoFlowInterface(FlowInterface):
             if i_f == 4:
                 f_status = FlowStatus.ABORTED
                 ff_status = None
-            family = rfn.add('{:s}_family{:02d}'.format(path, i_f),
-                             overall_status or f_status)
-            efm = family.add('extra_family',
-                             overall_status or ff_status or FlowStatus.ACTIVE)
+            family = rfn.add(
+                "{:s}_family{:02d}".format(path, i_f), overall_status or f_status
+            )
+            efm = family.add(
+                "extra_family", overall_status or ff_status or FlowStatus.ACTIVE
+            )
             for i_t in range(3):
-                efm.add('task{:02d}'.format(i_t),
-                        overall_status or ff_status or FlowStatus.COMPLETE)
-            efm.add('task{:02d}'.format(4),
-                    overall_status or ff_status or FlowStatus.ACTIVE)
+                efm.add(
+                    "task{:02d}".format(i_t),
+                    overall_status or ff_status or FlowStatus.COMPLETE,
+                )
+            efm.add(
+                "task{:02d}".format(4), overall_status or ff_status or FlowStatus.ACTIVE
+            )
             for i_t in range(3):
-                family.add('task{:02d}'.format(i_t),
-                           overall_status or ff_status or FlowStatus.COMPLETE)
+                family.add(
+                    "task{:02d}".format(i_t),
+                    overall_status or ff_status or FlowStatus.COMPLETE,
+                )
             for i_t in range(3, 5):
-                family.add('task{:02d}'.format(i_t),
-                           overall_status or ff_status or FlowStatus.ACTIVE)
-            family.add('task{:02d}'.format(5),
-                       overall_status or ff_status or FlowStatus.ABORTED)
-            family.add('task{:02d}'.format(6),
-                       overall_status or ff_status or FlowStatus.SUBMITTED)
-            family.add('task{:02d}'.format(7),
-                       overall_status or ff_status or FlowStatus.UNKNOWN)
+                family.add(
+                    "task{:02d}".format(i_t),
+                    overall_status or ff_status or FlowStatus.ACTIVE,
+                )
+            family.add(
+                "task{:02d}".format(5),
+                overall_status or ff_status or FlowStatus.ABORTED,
+            )
+            family.add(
+                "task{:02d}".format(6),
+                overall_status or ff_status or FlowStatus.SUBMITTED,
+            )
+            family.add(
+                "task{:02d}".format(7),
+                overall_status or ff_status or FlowStatus.UNKNOWN,
+            )
         logger.debug('Got statuses for "%s":\n%s', path, rfn)
         return rfn
 
     def _retrieve_status(self, path: str) -> RootFlowNode:
         """Create fake family/tasks tree for our workflow definition."""
         time.sleep(0.1)
-        if path in ('0000', '0001'):
+        if path in ("0000", "0001"):
             return self._generic_flow_node(path, overall_status=FlowStatus.COMPLETE)
-        if path == '0002':
+        if path == "0002":
             return self._generic_flow_node(path)
         else:
-            return self._generic_flow_node(path, top_status=FlowStatus.SUSPENDED,
-                                           overall_status=FlowStatus.QUEUED)
+            return self._generic_flow_node(
+                path, top_status=FlowStatus.SUSPENDED, overall_status=FlowStatus.QUEUED
+            )
 
     @staticmethod
     def _any_command(root_node: FlowNode, paths: typing.List[str]) -> str:
@@ -116,4 +131,4 @@ class DemoFlowInterface(FlowInterface):
 
     def _logs_gateway_create(self) -> LogsGateway:
         """Create a demo LogsGateway object."""
-        return get_logs_gateway(kind='demo')
+        return get_logs_gateway(kind="demo")

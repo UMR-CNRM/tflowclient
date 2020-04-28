@@ -7,10 +7,13 @@ various workflow schedulers. For now, only ``SMS`` is supported: see the
 
 ## Requirements & Dependencies
 
-The ``tflowclient`` package is not compatible with Python 2.7.
+The ``tflowclient`` package is only compatible with Python >= 3.7.
 
 The ``tflowclient`` package itself only depends on the non-standard ``urwid``
 package that is available on PyPi.
+
+Developers will also need to install the ``nose`` and ``black`` PyPi
+packages in order to respectively test the code and format the code.
 
 To use the ``bin/tflowclient_cdp.py`` executable, a ``cdp`` executable needs to
 be available in the system's path. Otherwise, its path can be specified in the
@@ -41,6 +44,17 @@ Use ``nosetests`` manually or launch it through ``setuptools``:
 
 Once the package is installed, the ``bin/tflowclient_demo.py`` executable
 can be launched. It allows you to interact with a dummy workflow.
+
+## Rules regarding developments
+
+All the Python code (including the code in ``bin`` and ``tests`` subdirectories)
+must comply with PEP8. Prior to any commit in the central repository, all
+the Python code **must** be automatically formatted using the black formatter:
+
+    black -t py37 .
+
+All the unit tests must succeed at any time (see "Test your installation"
+above).
 
 ## The ``~/.tflowclientrc.ini`` configuration file
 
@@ -86,3 +100,31 @@ The first to entries of the palette still represent foreground and background
 colors for the 16-colors palette but the 4th and 5th elements represents
 foreground and background colors for the 256-colors palette
 (see https://urwid.readthedocs.io/en/latest/examples/index.html#palette-test-py).                                                    
+
+## Extra configuration for SMS/CDP
+
+When running the ``tflowclient_cdp.py`` utility, the server name, user name and
+SMS suite to follow have to be specified:
+
+    tflowclient_cdp.py -s sms_server -u sms_user -r sms_suite
+
+For a day to day use, default values can be specified in the
+``~/.tflowclientrc.ini`` file:
+
+    [cdp]
+    path=path_to_the_cdp_binary
+    host=sms_server
+    user=sms_user
+    suite=sms_suite
+
+``path`` may be omitted if it is properly configured system-wide.
+
+In addition, the user must provide his credentials in a ``~/.smsrc`` file.
+The ``~/.smsrc`` file may contain several lines for each of the
+server_name/user_name pair the user wants to connect to. The ``.smsrc``
+file looks like:
+
+    sms_server sms_user sms_user_s_password
+
+The ``~/.smsrc`` file needs to be accessible **only** by the user ("600"
+permissions in octal notation).
