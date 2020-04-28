@@ -400,7 +400,9 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
             self._notify_tree_roots()
         if self._tree_roots is None or len(self._tree_roots) == 0:
             raise RuntimeError(
-                "suite={:s} does not exists or is empty".format(self.suite)
+                "Connexion to the server failed or suite={:s} does not exists/is empty".format(
+                    self.suite
+                )
             )
         return self._tree_roots
 
