@@ -890,9 +890,8 @@ class TFlowMainView(TFlowAbstractView, Observer):
         """Triggered when the user selects a new root Node."""
         if root:
             new_active_root = button.get_label()
-            with self.listbox.temporary_void_display(
-                not self.flow.in_cache(new_active_root)
-            ):
+            with self.listbox.temporary_void_display():
+                self.flow.refresh(new_active_root)
                 self.active_root = new_active_root
                 self._roots_hits[self.active_root] = time.time()
                 # Because the order of the items might change...
