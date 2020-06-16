@@ -536,10 +536,16 @@ class TFlowCommandView(TFlowAbstractView):
     def _do_command(self, command: str):
         """Launch **command** and display the result."""
         self._todo = command
+        wait = "\n\nPlease wait will the {:s} command is being issued...".format(
+            command
+        )
+        self.text_container = urwid.Text([("warning", wait)])
+        self.pile.contents = [(urwid.Filler(self.text_container), ("weight", 1))]
+        self.footer_update()
+        self.app.loop.draw_screen()
         summary = 'Result for the "{:s}" command:\n'.format(command)
         summary += self.flow.command_gateway(command, self.root_node, self.selected)
         wait = "\n\nPlease wait will the status tree is being refreshed..."
-        self.root_node.reset_flagged()
         self.text_container = urwid.Text([summary, ("warning", wait)])
         self.pile.contents = [(urwid.Filler(self.text_container), ("weight", 1))]
         self.footer_update()
@@ -547,7 +553,7 @@ class TFlowCommandView(TFlowAbstractView):
         self.flow.refresh(self.root_node.name)
         self.text_container = urwid.Text(summary)
         self.pile.contents = [(urwid.Filler(self.text_container), ("weight", 1))]
-        self.footer_update([("key", "ESC/ENTER"), ": back to statuses"])
+        self.footer_update([("key", "ESC/ENTER/BACKSPACE"), ": back to statuses"])
 
     def keypress_hook(self, key: str) -> typing.Union[str, None]:
         """Handle key strokes."""
@@ -561,7 +567,7 @@ class TFlowCommandView(TFlowAbstractView):
             else:
                 return key
         else:
-            if key in ("esc", "enter"):
+            if key in ("esc", "enter", "backspace"):
                 self.app.switch_view(self.app.main_view)
             else:
                 return key

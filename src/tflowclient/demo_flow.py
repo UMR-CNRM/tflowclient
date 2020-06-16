@@ -120,6 +120,7 @@ class DemoFlowInterface(FlowInterface):
         """This is a dummy method that will be called instead of any actual command."""
         assert isinstance(root_node, FlowNode)
         assert isinstance(paths, list)
+        time.sleep(0.5)
         return "This is a demo run: what did you expect ?"
 
     do_rerun = _any_command
