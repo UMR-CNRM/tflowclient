@@ -1042,7 +1042,11 @@ class TFlowApplication(object):
             "\n  ".join([str(item) for item in palette]),
         )
         self.loop = urwid.MainLoop(
-            self.view, palette, screen=screen, unhandled_input=self.unhandled_input
+            self.view,
+            palette,
+            screen=screen,
+            unhandled_input=self.unhandled_input,
+            handle_mouse=tflowclient_conf.handle_mouse,
         )
         # Create the Main (tree) view and display it
         self.main_view = TFlowMainView(self.flow, self)

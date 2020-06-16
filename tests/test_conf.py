@@ -75,6 +75,14 @@ class TestConf(unittest.TestCase):
         self.assertEqual(
             TFlowClientConfig(
                 conf_txt="""[urwid]
+                    handle_mouse= 1
+                    """
+            ).handle_mouse,
+            True,
+        )
+        self.assertEqual(
+            TFlowClientConfig(
+                conf_txt="""[urwid]
             terminal_colors= 256
             """
             ).terminal_properties,

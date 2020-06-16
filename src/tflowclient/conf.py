@@ -184,6 +184,13 @@ class TFlowClientConfig(object):
         )
 
     @property
+    def handle_mouse(self) -> bool:
+        """Allow mouse interactions."""
+        return self._true_false_none_value(
+            self._conf.get("urwid", "handle_mouse", fallback="False")
+        )
+
+    @property
     def cdp_default_path(self) -> typing.Union[str, None]:
         """The path to the CDP binary."""
         return self._conf.get("cdp", "path", fallback=None)
