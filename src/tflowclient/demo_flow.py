@@ -119,9 +119,11 @@ class DemoFlowInterface(FlowInterface):
     def _any_command(root_node: FlowNode, paths: typing.List[str]) -> str:
         """This is a dummy method that will be called instead of any actual command."""
         assert isinstance(root_node, FlowNode)
-        assert isinstance(paths, list)
         time.sleep(0.5)
-        return "This is a demo run: what did you expect ?"
+        return "\n".join(
+            ["This is a demo run: what did you expect ?", "Here is the list of paths:",]
+            + paths
+        )
 
     do_rerun = _any_command
     do_execute = _any_command

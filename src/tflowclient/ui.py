@@ -289,7 +289,7 @@ class EmptyNode(urwid.TreeNode):
 AnyUrwidFlowNode = typing.Union[FamilyNode, TaskNode, EmptyNode]
 
 
-# ------ Our very own implementation of sme Urwid widgets ------
+# ------ Our very own implementation of some Urwid widgets ------
 
 
 class TFlowTreeListBox(urwid.TreeListBox):
@@ -350,6 +350,16 @@ class TFlowTreeListBox(urwid.TreeListBox):
             return key
         else:
             return super().keypress(size, key)
+
+
+class TFlowLongTextWidget(urwid.ListBox):
+    """A scrolable text-area."""
+
+    def __init__(self, textlist: typing.List[str]):
+        """
+        :param textlist: The list of strings to be displayed.
+        """
+        super().__init__(urwid.SimpleListWalker([urwid.Text(t) for t in textlist]))
 
 
 class KeyCaptureWrapper(urwid.WidgetWrap):
@@ -487,13 +497,18 @@ class TFlowCommandView(TFlowAbstractView):
                 ]
         if self.selected:
             # Prompt the user to choose a command
-            self.text_container = urwid.Text(self._get_message())
-            self.grid_flow = self._commands_grid()
+            self.text_container = TFlowLongTextWidget(
+                ["Selected nodes:"] + self.selected
+            )
             self.pile = urwid.Pile(
                 [
-                    urwid.Filler(self.text_container, valign="bottom"),
-                    urwid.Filler(self.grid_flow, valign="top"),
-                ]
+                    self.text_container,
+                    ("pack", urwid.Divider()),
+                    ("pack", urwid.Text("Available commands:")),
+                    ("pack", self._commands_grid()),
+                    ("pack", urwid.Divider()),
+                ],
+                focus_item=0,
             )
             self.main_content = KeyCaptureWrapper(self.pile, current_view=self)
             self.footer_update(
@@ -506,7 +521,7 @@ class TFlowCommandView(TFlowAbstractView):
                     ),
                     ": launch the command",
                 ],
-                [("key", "ESC"), ": back to statuses"],
+                [("key", "ESC/BACKSPACE"), ": back to statuses"],
             )
         else:
             # Display the "error" message, then go back
@@ -514,13 +529,8 @@ class TFlowCommandView(TFlowAbstractView):
             self.main_content = KeyCaptureWrapper(
                 urwid.Filler(self.text_container), current_view=self, propagate=False
             )
-            self.footer_update([("key", "ESC/ENTER"), ": back to statuses"])
+            self.footer_update([("key", "ESC/ENTER/BACKSPACE"), ": back to statuses"])
         self._todo = None
-
-    def _get_message(self) -> str:
-        return "Selected nodes:\n{:s}\n\nAvailable commands:\n".format(
-            "\n".join(self.selected)
-        )
 
     def _commands_grid(self) -> urwid.GridFlow:
         """Generate the list of Urwid buttons associated with each of the commands."""
@@ -530,7 +540,13 @@ class TFlowCommandView(TFlowAbstractView):
             label = "[{1:s}] {0:s}".format(*av_c)
             label_sizes.append(len(label))
             buttons.append(
-                urwid.Button(label, on_press=self._button_pressed, user_data=av_c[2])
+                urwid.AttrWrap(
+                    urwid.Button(
+                        label, on_press=self._button_pressed, user_data=av_c[2]
+                    ),
+                    "button",
+                    "button_f",
+                )
             )
         return urwid.GridFlow(
             buttons, cell_width=max(label_sizes) + 4, h_sep=2, v_sep=0, align="left"
@@ -544,6 +560,7 @@ class TFlowCommandView(TFlowAbstractView):
     def _do_command(self, command: str):
         """Launch **command** and display the result."""
         self._todo = command
+        # Ok. Just wait...
         wait = "\n\nPlease wait will the {:s} command is being issued...".format(
             command
         )
@@ -551,16 +568,25 @@ class TFlowCommandView(TFlowAbstractView):
         self.pile.contents = [(urwid.Filler(self.text_container), ("weight", 1))]
         self.footer_update()
         self.app.loop.draw_screen()
-        summary = 'Result for the "{:s}" command:\n'.format(command)
-        summary += self.flow.command_gateway(command, self.root_node, self.selected)
-        wait = "\n\nPlease wait will the status tree is being refreshed..."
-        self.text_container = urwid.Text([summary, ("warning", wait)])
-        self.pile.contents = [(urwid.Filler(self.text_container), ("weight", 1))]
+        # Display the result and wait for statuses to be refreshed
+        summary = self.flow.command_gateway(command, self.root_node, self.selected)
+        self.text_container = TFlowLongTextWidget(
+            ['Result for the "{:s}" command:'.format(command)] + summary.split("\n")
+        )
+        wait = urwid.Text(
+            ("warning", "Please wait will the status tree is being refreshed...")
+        )
+        self.pile.contents = [
+            (self.text_container, ("weight", 1)),
+            (urwid.Divider(), ("pack", 1)),
+            (wait, ("pack", 1)),
+            (urwid.Divider(), ("pack", 1)),
+        ]
         self.footer_update()
         self.app.loop.draw_screen()
         self.flow.refresh(self.root_node.name)
-        self.text_container = urwid.Text(summary)
-        self.pile.contents = [(urwid.Filler(self.text_container), ("weight", 1))]
+        # We are done with waiting
+        wait.set_text("")
         self.footer_update([("key", "ESC/ENTER/BACKSPACE"), ": back to statuses"])
 
     def keypress_hook(self, key: str) -> typing.Union[str, None]:
@@ -570,7 +596,7 @@ class TFlowCommandView(TFlowAbstractView):
                 if av_c[1] and key.upper() == av_c[1]:
                     self._do_command(av_c[2])
                     return
-            if key == "esc":
+            if key in ("esc", "backspace"):
                 self.app.switch_view(self.app.main_view)
             else:
                 return key
