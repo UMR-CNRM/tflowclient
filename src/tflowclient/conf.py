@@ -40,6 +40,8 @@ DEFAULT_PALETTE = dict(
     foot=("white", "black"),
     key=("light cyan", "black", "underline"),
     title=("white", "black", "bold"),
+    button=("black", "light gray"),
+    button_f=("white", "dark blue", "bold"),
 )
 
 

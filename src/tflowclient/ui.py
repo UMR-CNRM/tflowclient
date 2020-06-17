@@ -407,6 +407,14 @@ class TFlowAbstractView(object):
         self.footer_update()
         self.main_content = None
 
+    def switch_in_hook(self):
+        """Called each time this view is shown."""
+        pass
+
+    def switch_out_hook(self):
+        """Called each time this view is hidden."""
+        pass
+
     def header_update(self, extra: str = ""):
         """Update the header text (given any **extra** information)."""
         self.header.set_text("tCDP for {!s}. {:s}".format(self.flow, extra))
@@ -648,10 +656,14 @@ class TFlowLogsView(TFlowAbstractView):
                             ),
                         )
                         self.buttons.append(
-                            urwid.Button(
-                                l_label,
-                                on_press=self._button_pressed,
-                                user_data=listing[0],
+                            urwid.AttrWrap(
+                                urwid.Button(
+                                    l_label,
+                                    on_press=self._button_pressed,
+                                    user_data=listing[0],
+                                ),
+                                "button",
+                                "button_f",
                             )
                         )
                 else:
@@ -708,6 +720,64 @@ class TFlowLogsView(TFlowAbstractView):
             self.app.switch_view(self.app.main_view)
         else:
             return key
+
+
+class TFlowQuitView(TFlowAbstractView):
+    """The view that is triggered when the user wants to quit the application."""
+
+    def __init__(self, flow_object: FlowInterface, app_object: TFlowApplication):
+        """
+        :param flow_object: The flow object currently being used
+        :param app_object: The application object
+        """
+        super().__init__(flow_object, app_object)
+        # the frame that will display the message and buttons
+        frame = urwid.Frame(urwid.Filler(urwid.Divider(), "top"), focus_part="footer")
+        frame.header = urwid.Pile(
+            [urwid.Text("Are you sure you want to quit?"), urwid.Divider()]
+        )
+        # pad area around the frame
+        w = urwid.Padding(frame, ("fixed left", 2), ("fixed right", 2))
+        w = urwid.Filler(w, ("fixed top", 1), ("fixed bottom", 1))
+        w = urwid.Padding(w, "center", 25)
+        w = urwid.Filler(w, "middle", 6)
+        self.main_content = w
+        # Add the Yes/No buttons
+        self._inner_gflow = urwid.GridFlow(
+            [
+                urwid.AttrWrap(
+                    urwid.Button(name, self.button_press), "button", "button_f"
+                )
+                for name in ("Yes", "No")
+            ],
+            cell_width=7,
+            h_sep=3,
+            v_sep=1,
+            align="center",
+        )
+        frame.footer = urwid.Pile([urwid.Divider(), self._inner_gflow], focus_item=1)
+        # Where to go back if the user answers No ?
+        self.previousview = None
+
+    def switch_in_hook(self):
+        """Record the previous view and focus the Yes answer."""
+        self.previousview = self.app.current_view
+        self._inner_gflow.focus_position = 0
+
+    def switch_out_hook(self):
+        """Forget about the previous view."""
+        self.previousview = None
+
+    def button_press(self, button: urwid.Button):
+        """Exit or go back to the previous view."""
+        if button.label == "Yes":
+            raise urwid.ExitMainLoop
+        else:
+            self.app.switch_view(self.previousview)
+
+    def footer_update(self, *extras: list):
+        """Empty the footer text."""
+        self.footer = urwid.GridFlow([], 1, h_sep=2, v_sep=0, align="left")
 
 
 class TFlowMainView(TFlowAbstractView, Observer):
@@ -1048,22 +1118,28 @@ class TFlowApplication(object):
             handle_mouse=tflowclient_conf.handle_mouse,
         )
         # Create the Main (tree) view and display it
+        self.current_view = None
         self.main_view = TFlowMainView(self.flow, self)
         self.switch_view(self.main_view)
+        # Create the Quit view (just in case)
+        self.quit_view = TFlowQuitView(self.flow, self)
 
     def switch_view(self, view_obj: TFlowAbstractView):
         """Display the **view_obj** view."""
         logger.debug('Switching to view: "%s"', view_obj)
+        if self.current_view is not None:
+            self.current_view.switch_out_hook()
+        view_obj.switch_in_hook()
         self.view.set_body(view_obj.main_content)
         self.view.set_header(urwid.AttrWrap(view_obj.header, "head"))
         self.view.set_footer(urwid.AttrWrap(view_obj.footer, "foot"))
+        self.current_view = view_obj
 
     def main(self):
         """Run the Urwid main loop."""
         self.loop.run()
 
-    @staticmethod
-    def unhandled_input(key: str):
+    def unhandled_input(self, key: str):
         """Handle q/Q key strokes."""
-        if key in ("q", "Q"):
-            raise urwid.ExitMainLoop()
+        if key in ("q", "Q") and self.current_view != self.quit_view:
+            self.switch_view(self.quit_view)
