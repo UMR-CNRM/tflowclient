@@ -246,6 +246,18 @@ class FlowNode(observer.Subject):
         for c_node in self:
             c_node.reset_flagged()
 
+    def ingest_flagged(self, flaggedpaths: typing.List[str]):
+        """Import a list of flagged paths."""
+        for f in flaggedpaths:
+            if f.startswith(self.name):
+                try:
+                    found = self.resolve_path(f[len(self.name) :].lstrip("/"))
+                except KeyError:
+                    pass
+                else:
+                    found.flagged = True
+                    found.set_expanded()
+
 
 class RootFlowNode(FlowNode):
     """An extension of the :class:`FlowNode`class that records the creation time."""
@@ -446,6 +458,8 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
             logger.debug('Refresh has been done but no changes in "%s".', path)
             self._full_statuses[path].touch()
         else:
+            if path in self._full_statuses:
+                value.ingest_flagged(self._full_statuses[path].flagged_paths())
             self._full_statuses[path] = value
             self._notify_status(path)
 
