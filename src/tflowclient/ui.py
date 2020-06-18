@@ -926,6 +926,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
             logger.debug(
                 'Aborted tasks selection triggered by user on "%s".', self.active_root
             )
+            self.active_root_node.reset_flagged()
             self.active_root_node.flag_status(FlowStatus.ABORTED)
         elif key in ("u", "U"):
             logger.debug(
