@@ -13,7 +13,7 @@ import logging
 import time
 import typing
 
-from .flow import FlowInterface, FlowNode, RootFlowNode, FlowStatus
+from .flow import FlowInterface, FlowNode, RootFlowNode, FlowStatus, ExtraFlowNodeInfo
 from .logs_gateway import LogsGateway, get_logs_gateway
 
 __all__ = ["DemoFlowInterface"]
@@ -135,3 +135,29 @@ class DemoFlowInterface(FlowInterface):
     def _logs_gateway_create(self) -> LogsGateway:
         """Create a demo LogsGateway object."""
         return get_logs_gateway(kind="demo")
+
+    def node_info(self, node: FlowNode) -> typing.List[ExtraFlowNodeInfo]:
+        """Some demo information."""
+        return [
+            ExtraFlowNodeInfo(
+                "flowspecific",
+                "MaxTries",
+                "1",
+                description="Inherited from /{:s}".format(self.suite),
+                editable=True,
+            ),
+            ExtraFlowNodeInfo("limit", "run", "10", editable=True),
+            ExtraFlowNodeInfo("limit", "runpp", "2", editable=True),
+            ExtraFlowNodeInfo("meter", "ymdh", "2020010100", editable=True),
+            ExtraFlowNodeInfo("trigger", "toto [complete]"),
+        ]
+
+    def _actual_save_node_info(
+        self, node: FlowNode, info: typing.List[ExtraFlowNodeInfo]
+    ) -> str:
+        """This is a dummy method that will be called instead of any actual command."""
+        assert self
+        assert isinstance(node, FlowNode)
+        assert isinstance(info, list)
+        time.sleep(0.5)
+        return "This is a demo run: what did you expect ?"

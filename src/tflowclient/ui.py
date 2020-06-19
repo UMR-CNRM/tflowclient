@@ -27,6 +27,7 @@ from __future__ import annotations
 import collections
 import contextlib
 from datetime import datetime, timedelta
+import functools
 import logging
 import subprocess
 import time
@@ -36,7 +37,7 @@ import urwid
 import urwid.curses_display
 
 from .conf import tflowclient_conf
-from .flow import FlowInterface, FlowNode, RootFlowNode, FlowStatus
+from .flow import FlowInterface, FlowNode, RootFlowNode, FlowStatus, ExtraFlowNodeInfo
 from .logs_gateway import LogsGatewayRuntimeError
 from .observer import Observer
 
@@ -353,7 +354,7 @@ class TFlowTreeListBox(urwid.TreeListBox):
 
 
 class TFlowLongTextWidget(urwid.ListBox):
-    """A scrolable text-area."""
+    """A scroll-able text-area."""
 
     def __init__(self, textlist: typing.List[str]):
         """
@@ -383,6 +384,7 @@ class KeyCaptureWrapper(urwid.WidgetWrap):
         """Must be selectable to capture key strokes."""
         return True
 
+    # noinspection PyCallingNonCallable
     def keypress(self, size: typing.Tuple[int], key: str) -> typing.Union[str, None]:
         """Divert key strokes to the ``keypress_hook`` method."""
         key = self._current_view.keypress_hook(key)
@@ -398,6 +400,7 @@ class KeyCaptureWrapper(urwid.WidgetWrap):
 class TFlowAbstractView(object):
     """Any tflowclient views must inherit from this class"""
 
+    footer_add_quit = True
     footer_text = []
 
     def __init__(self, flow_object: FlowInterface, app_object: TFlowApplication):
@@ -421,6 +424,10 @@ class TFlowAbstractView(object):
         """Called each time this view is shown."""
         pass
 
+    def switch_post_in_hook(self):
+        """Called each time this view has been shown."""
+        pass
+
     def switch_out_hook(self):
         """Called each time this view is hidden."""
         pass
@@ -436,15 +443,16 @@ class TFlowAbstractView(object):
             txt_pile.append(urwid.Text(extra))
         for extra in self.footer_text:
             txt_pile.append(urwid.Text(extra))
-        txt_pile.append(urwid.Text([("key", "Q"), ": Quit"]))
-        max_len = max([len(t.text) for t in txt_pile])
+        if self.footer_add_quit:
+            txt_pile.append(urwid.Text([("key", "Q"), ": Quit"]))
+        max_len = max([len(t.text) for t in txt_pile]) if txt_pile else 1
         if self.footer is None:
             self.footer = urwid.GridFlow(
-                txt_pile, max_len, h_sep=2, v_sep=0, align="left"
+                txt_pile, max_len, h_sep=1, v_sep=0, align="left"
             )
         else:
-            self.footer.cell_width = max_len
             self.footer.contents = [(t, self.footer.options()) for t in txt_pile]
+            self.footer.cell_width = max_len
 
     def keypress_hook(self, key: str) -> typing.Union[str, None]:
         """Leveraged when used with a :class:`KeyCaptureWrapper` wrapper."""
@@ -498,7 +506,7 @@ class TFlowCommandView(TFlowAbstractView):
         if self.selected:
             # Prompt the user to choose a command
             self.text_container = TFlowLongTextWidget(
-                ["Selected nodes:"] + self.selected
+                ["", "Selected nodes:"] + self.selected
             )
             self.pile = urwid.Pile(
                 [
@@ -530,6 +538,7 @@ class TFlowCommandView(TFlowAbstractView):
                 urwid.Filler(self.text_container), current_view=self, propagate=False
             )
             self.footer_update([("key", "ESC/ENTER/BACKSPACE"), ": back to statuses"])
+        self.main_content = urwid.Padding(self.main_content, left=1, right=1)
         self._todo = None
 
     def _commands_grid(self) -> urwid.GridFlow:
@@ -653,7 +662,7 @@ class TFlowLogsView(TFlowAbstractView):
                     [
                         (
                             "warning",
-                            "An un-expected error occured while fetching the "
+                            "An un-expected error occurred while fetching the "
                             + "list of available log files:\n{!s}".format(e),
                         )
                     ]
@@ -670,7 +679,6 @@ class TFlowLogsView(TFlowAbstractView):
                             self.focused_path
                         )
                     )
-                    b_group = list()
                     cur_time = datetime.utcnow()
                     for listing in av_listings:
                         l_label = "{:s} ({!s} ago)".format(
@@ -710,6 +718,7 @@ class TFlowLogsView(TFlowAbstractView):
             self.main_content = KeyCaptureWrapper(
                 urwid.Filler(self.text_container), current_view=self, propagate=False
             )
+        self.main_content = urwid.Padding(self.main_content, left=1, right=1)
 
     def _button_pressed(self, button: urwid.Button, log_listing: str):
         """Triggered when a button is pressed (e.g. when a log file is chosen)."""
@@ -723,7 +732,7 @@ class TFlowLogsView(TFlowAbstractView):
                 [
                     (
                         "warning",
-                        'An error occured while fetching the "{:s}" listing: {!s}'.format(
+                        'An error occurred while fetching the "{:s}" listing: {!s}'.format(
                             log_listing, e
                         ),
                     ),
@@ -748,6 +757,146 @@ class TFlowLogsView(TFlowAbstractView):
             return key
 
 
+class TFlowInfoView(TFlowAbstractView):
+    """The view that is triggered when the user requests extra information."""
+
+    def __init__(
+        self,
+        flow_object: FlowInterface,
+        app_object: TFlowApplication,
+        visited_node: FlowNode,
+    ):
+        """
+        :param flow_object: The flow object currently being used
+        :param app_object: The application object
+        :param visited_node: The current FlowNode
+        """
+        self.footer_add_quit = False
+        super().__init__(flow_object, app_object)
+        self._visited_node = visited_node
+        self._info = []
+        self._result = False
+        # Wait screen...
+        self.wait = "Please wait until the SMS server responds..."
+        self.wait = urwid.Filler(urwid.Text([("warning", self.wait)]))
+        if self.app.main_view.focused_tree:
+            self.pile = urwid.Pile([self.wait])
+        else:
+            not_in_tree = "No node selected..."
+            not_in_tree = urwid.Filler(urwid.Text([("warning", not_in_tree)]))
+            self.pile = urwid.Pile([not_in_tree])
+        x_pile = KeyCaptureWrapper(self.pile, current_view=self)
+        self.main_content = urwid.Padding(x_pile, left=1, right=1)
+
+    # noinspection PyTypeChecker
+    def switch_post_in_hook(self):
+        """Fetch the data and display it."""
+        if not self.app.main_view.focused_tree:
+            self._refresh_footer()
+            return
+        # make the wait screen pop up
+        self.app.loop.draw_screen()
+        # Actually fetch the data
+        self._info = self.flow.node_info(self._visited_node)
+        self._refresh_footer()
+        sorted_info = collections.defaultdict(list)
+        for a_info in self._info:
+            sorted_info[a_info.kind].append(a_info)
+        # Create associated widgets
+        to_pile_up = list()
+        for kind, info in sorted(sorted_info.items()):
+            to_pile_up.append(urwid.Divider())
+            to_pile_up.append(urwid.Text(("title", kind.upper() + ":")))
+            for item in info:
+                caption = "- {:s}".format(item.name)
+                if item.editable:
+                    edit_w = urwid.Edit(edit_text=item.value)
+                    urwid.connect_signal(
+                        edit_w,
+                        "postchange",
+                        functools.partial(self._update_value, item),
+                    )
+                    to_pile_up.append(
+                        urwid.Columns(
+                            [
+                                ("pack", urwid.Text(caption + " = ")),
+                                urwid.AttrWrap(edit_w, "editable", "editable_f"),
+                            ]
+                        )
+                    )
+                else:
+                    to_pile_up.append(
+                        urwid.Text(
+                            caption + ("" if item.value is None else " = " + item.value)
+                        )
+                    )
+                if item.description:
+                    to_pile_up.append(urwid.Text("  # ({:s})".format(item.description)))
+        if not to_pile_up:
+            to_pile_up = [ExtraFlowNodeInfo("info", "Nothing to be displayed...")]
+        self.pile.contents = [
+            (urwid.ListBox(urwid.SimpleListWalker(to_pile_up)), ("weight", 1))
+        ]
+
+    @property
+    def touched(self):
+        """Tells whether some of the fields have changed."""
+        return any([i.touched for i in self._info])
+
+    def _refresh_footer(self):
+        """Add the entry related to "ENTER" only when sensible."""
+        todo = [[("key", "ESC"), ": back to statuses"]]
+        if self.touched:
+            todo.append([("key", "ENTER"), ": save & go back"])
+        self.footer_update(*todo)
+
+    def _update_value(
+        self, item: ExtraFlowNodeInfo, widget: urwid.Edit, old_value: str
+    ):
+        assert isinstance(old_value, str)
+        item.value = widget.edit_text
+        self._refresh_footer()
+
+    def keypress_hook(self, key: str) -> typing.Union[str, None]:
+        """Handle key strokes."""
+        if self._result:
+            # Results are currently being displayed
+            if key in ("esc", "enter", "backspace"):
+                self.app.switch_view(self.app.main_view)
+            else:
+                return key
+        else:
+            # Main display ...
+            if key == "esc":
+                self.app.switch_view(self.app.main_view)
+            elif key == "enter" and self.touched:
+                # This may take a while: display a message
+                self.footer_add_quit = True
+                self.footer_update()
+                self.pile.contents = [(self.wait, ("weight", 1))]
+                self.app.loop.draw_screen()
+                # Actually save the results
+                self._result = self.flow.save_node_info(self._visited_node, self._info)
+                if self._result:
+                    # Display the result
+                    self.footer_update(
+                        [("key", "ESC/ENTER/BACKSPACE"), ": back to statuses"]
+                    )
+                    self.pile.contents = [
+                        (
+                            TFlowLongTextWidget(
+                                ["", "Output received when changing the settings:", ""]
+                                + self._result.split("\n")
+                            ),
+                            ("weight", 1),
+                        )
+                    ]
+                else:
+                    self.app.switch_view(self.app.main_view)
+            else:
+                return key
+
+
 class TFlowQuitView(TFlowAbstractView):
     """The view that is triggered when the user wants to quit the application."""
 
@@ -769,7 +918,7 @@ class TFlowQuitView(TFlowAbstractView):
         w = urwid.Filler(w, "middle", 6)
         self.main_content = w
         # Add the Yes/No buttons
-        self._inner_gflow = urwid.GridFlow(
+        self._inner_g_flow = urwid.GridFlow(
             [
                 urwid.AttrWrap(
                     urwid.Button(name, self.button_press), "button", "button_f"
@@ -781,25 +930,25 @@ class TFlowQuitView(TFlowAbstractView):
             v_sep=1,
             align="center",
         )
-        frame.footer = urwid.Pile([urwid.Divider(), self._inner_gflow], focus_item=1)
+        frame.footer = urwid.Pile([urwid.Divider(), self._inner_g_flow], focus_item=1)
         # Where to go back if the user answers No ?
-        self.previousview = None
+        self.previous_view = None
 
     def switch_in_hook(self):
         """Record the previous view and focus the Yes answer."""
-        self.previousview = self.app.current_view
-        self._inner_gflow.focus_position = 0
+        self.previous_view = self.app.current_view
+        self._inner_g_flow.focus_position = 0
 
     def switch_out_hook(self):
         """Forget about the previous view."""
-        self.previousview = None
+        self.previous_view = None
 
     def button_press(self, button: urwid.Button):
         """Exit or go back to the previous view."""
         if button.label == "Yes":
             raise urwid.ExitMainLoop
         else:
-            self.app.switch_view(self.previousview)
+            self.app.switch_view(self.previous_view)
 
     def footer_update(self, *extras: list):
         """Empty the footer text."""
@@ -818,6 +967,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
         [("key", "A"), ": Select Aborted"],
         [("key", "U"), ": Un-select all"],
         [("key", "C"), ": Launch Command"],
+        [("key", "I"), ": Node Info"],
     ]
 
     recent_roots_threshold = 3 * 3600
@@ -830,7 +980,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
         :param app_object: The application object
         """
         if flow_object.logs is not None:
-            self.footer_text = self.footer_text + [[("key", "L"), ": Access Logs"]]
+            self.footer_text += [[("key", "L"), ": Access Logs"]]
         super().__init__(flow_object, app_object)
         # Create the "Tree" widget
         void_node = FamilyNode(
@@ -922,6 +1072,8 @@ class TFlowMainView(TFlowAbstractView, Observer):
             self.command_dialog()
         elif key in ("l", "L") and self.flow.logs is not None:
             self.logs_dialog()
+        elif key in ("i", "I"):
+            self.info_dialog()
         elif key in ("a", "A"):
             logger.debug(
                 'Aborted tasks selection triggered by user on "%s".', self.active_root
@@ -1105,6 +1257,12 @@ class TFlowMainView(TFlowAbstractView, Observer):
         l_view = TFlowLogsView(self.flow, self.app, root_node=self.active_root_node)
         self.app.switch_view(l_view)
 
+    def info_dialog(self):
+        """Open the info view dialog"""
+        logger.debug('Info dialog requested by user on "%s".', self.active_root)
+        l_view = TFlowInfoView(self.flow, self.app, self.active_root_node.focused)
+        self.app.switch_view(l_view)
+
 
 # ------ Application object:  The UI entry point ! -------
 
@@ -1151,6 +1309,7 @@ class TFlowApplication(object):
         # Create the Quit view (just in case)
         self.quit_view = TFlowQuitView(self.flow, self)
 
+    # noinspection PyArgumentList
     def switch_view(self, view_obj: TFlowAbstractView):
         """Display the **view_obj** view."""
         logger.debug('Switching to view: "%s"', view_obj)
@@ -1161,6 +1320,7 @@ class TFlowApplication(object):
         self.view.set_header(urwid.AttrWrap(view_obj.header, "head"))
         self.view.set_footer(urwid.AttrWrap(view_obj.footer, "foot"))
         self.current_view = view_obj
+        view_obj.switch_post_in_hook()
 
     def main(self):
         """Run the Urwid main loop."""

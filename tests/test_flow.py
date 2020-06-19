@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 
+"""
+Test the FlowNode class and related tools.
+"""
+
 import time
 import unittest
 
@@ -16,10 +20,14 @@ RES_STR_20200114_12 = """[ABORTED]_12
 
 
 class FlowTestObserver(Observer):
+    """Fake observer for test purposes."""
+
     def __init__(self):
+        """Initialise the slurp set of messages"""
         self.slurp = set()
 
     def update_obs_item(self, item: Subject, info: dict):
+        """Listen to flagged nodes."""
         if info["flagged"]:
             self.slurp.add(id(item))
         else:
@@ -27,8 +35,11 @@ class FlowTestObserver(Observer):
 
 
 class TestFlow(unittest.TestCase):
+    """Unit-test class for FlowNode."""
+
     @staticmethod
     def _build_demo_flow():
+        """Build a demonstration FlowNode object hierarchy."""
         r_fn = RootFlowNode("A157", FlowStatus.ABORTED)
         f_d14 = r_fn.add("20200114", FlowStatus.ABORTED)
         f_00 = f_d14.add("00", FlowStatus.COMPLETE)
@@ -45,6 +56,7 @@ class TestFlow(unittest.TestCase):
         return r_fn
 
     def test_root_flow(self):
+        """Test the FlowNode objects."""
         rfn = self._build_demo_flow()
         time.sleep(0.05)
         self.assertTrue(rfn.age > 0.05)
@@ -71,6 +83,9 @@ class TestFlow(unittest.TestCase):
             rfn["20200114"]["12"]["production"]["obsextract_surf"],
         )
         self.assertEqual(rfn["20200114"]["12"]["assim"].path, "20200114/12/assim")
+        self.assertEqual(
+            rfn["20200114"]["12"]["assim"].full_path, "A157/20200114/12/assim"
+        )
         self.assertEqual(str(rfn["20200114"]["12"]), RES_STR_20200114_12)
         self.assertEqual(rfn, rfn_bis)
         self.assertNotEqual(rfn, "toto")

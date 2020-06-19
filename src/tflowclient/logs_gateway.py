@@ -51,7 +51,7 @@ class LogsGateway(metaclass=abc.ABCMeta):
         assert isinstance(kwargs, dict)
 
     @staticmethod
-    def ping() -> bool:
+    def ping(**kwargs) -> bool:
         """Returns **True** if the logs gateway works properly."""
         return True
 

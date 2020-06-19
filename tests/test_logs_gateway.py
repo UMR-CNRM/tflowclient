@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 
+"""
+Test the log gateway classes.
+"""
+
 from datetime import datetime
 import os
 import unittest
@@ -17,7 +21,10 @@ task.job1
 
 
 class TestLogsGateway(unittest.TestCase):
+    """Unit-test class for the log gateways."""
+
     def test_gateway_factory(self):
+        """Test the factory method."""
         with self.assertRaises(ValueError):
             get_logs_gateway(kind="not_existing")
         with self.assertRaises(ValueError):
@@ -25,7 +32,9 @@ class TestLogsGateway(unittest.TestCase):
         demo_g = get_logs_gateway(kind="demo")
         self.assertIsInstance(demo_g, LogsGateway)
 
+    # noinspection PyUnresolvedReferences
     def test_demo_gateway(self):
+        """Test the Demo gateway."""
         demo_g = get_logs_gateway(kind="demo")
         self.assertListEqual(
             demo_g.list_file("/toto/task"),
@@ -45,6 +54,7 @@ class TestLogsGateway(unittest.TestCase):
         self.assertFalse(os.path.exists(t_file.name))
 
     def test_cdp_gateway(self):
+        """Test the SMS log gateway."""
         # Just test the ping method...
         sms_g = get_logs_gateway(
             kind="sms_log_svr", host="not_existing.for.sure.fr", port=12345, path="/tmp"

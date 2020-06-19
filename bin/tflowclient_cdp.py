@@ -43,6 +43,7 @@ if __name__ == "__main__":
     program_short_desc = (
         program_name + " -- " + __import__("__main__").__doc__.lstrip("\n")
     )
+    # noinspection PyTypeChecker
     parser = argparse.ArgumentParser(
         description=program_short_desc,
         epilog=EPILOG_STR,

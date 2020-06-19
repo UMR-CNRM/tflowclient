@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 
+"""
+Test on some of the SMS/CDP specific tools.
+"""
+
 from contextlib import contextmanager
 import os
 import tempfile
@@ -10,7 +14,7 @@ from tflowclient.cdp_flow import (
     SmsRcPermissionsError,
     CdpOutputParserMixin,
 )
-from tflowclient.flow import RootFlowNode, FlowStatus
+from tflowclient.flow import RootFlowNode, FlowStatus, ExtraFlowNodeInfo
 
 
 _CDP_STATIC_FULL_OUTPUT = """
@@ -57,6 +61,33 @@ groucho{que}   diagnostics{abo}
 Goodbye groucho
 """
 
+_CDP_STATIC_INFO_V_OUTPUT = """
+Welcome to cdp version 4.4.14 compiled on lun. déc. 30 13:52:27 CET 2019
+# MSG:SMS-CLIENT-LOGIN:groucho logged into localhost with password [812590]
+//localhost/leffe/B9GN/20190228/00/production/fc/forecast [task] is active
+Default status is:  queued
+  limit version septembre 2018 - mo07_mocage@camsfcst-main.03 - TEST [running 0 max 0]
+  limit running [running 1 max 3]
+       /leffe/B9GN/20190228/00/production/fc/forecast [active]
+Flags set: has user messages
+Current try number: 1
+  METER work is 3 limits are [0 - 6]
+  LABEL jobid 'beaufixcn:85583522--mtool:407991'
+Nodes triggered by this node
+    /leffe/B9GN/20190228/00/production/fc/post_bdap
+Nodes that trigger this node
+    /leffe/B9GN/20190228/00/production/fc/topbd [complete]
+    /leffe/B9GN/20190227/00/production/fc_init/control_guess/clim_restart [complete]
+Variables
+    (TASK         = forecast                                                                 ) []
+    (SMSNAME      = /leffe/B9GN/20190228/00/production/fc/forecast                           ) []
+    (FAMILY       = B9GN/20190228/00/production/fc                                           ) [/leffe/B9GN]
+     SMSTRIES     = 2                                                                          [/leffe]
+     SMSINCLUDE   = /home/verolive/swapp/repository/sms/include                                [/leffe]
+    (SUITE        = leffe                                                                    ) [/leffe]
+     SMSNODE      = cxsms5.cnrm.meteo.fr                                                       [/]
+"""
+
 _SMSRC_EXAMPLE = "thehost.meteo.fr test fancy_password"
 
 
@@ -86,13 +117,19 @@ def _ini_cdp_static_full_flow():
 
 
 class TestCdpOutputParserMixin(CdpOutputParserMixin):
+    """Test class intended to test tje CDp mixin."""
+
     @property
     def suite(self):
+        """The fake suite name."""
         return "groucho"
 
 
 class TestCdpFlow(unittest.TestCase):
+    """Unit test class for SMS/CDP specific tools."""
+
     def test_cdp_output_parser(self):
+        """Test the status parser."""
         self.assertEqual(
             TestCdpOutputParserMixin()._parse_status_output(_CDP_STATIC_FULL_OUTPUT),
             dict(A157=_ini_cdp_static_full_flow()),
@@ -116,8 +153,49 @@ class TestCdpFlow(unittest.TestCase):
             ),
         )
 
+    def test_cdp_info_parser(self):
+        """Test the info parser."""
+        self.assertEqual(
+            TestCdpOutputParserMixin()._parse_info_outputs(_CDP_STATIC_INFO_V_OUTPUT),
+            [
+                ExtraFlowNodeInfo(
+                    "limit",
+                    "version septembre 2018 - mo07_mocage@camsfcst-main.03 - TEST",
+                    "0",
+                    "currently running: 0",
+                    editable=True,
+                ),
+                ExtraFlowNodeInfo(
+                    "limit", "running", "3", "currently running: 1", editable=True
+                ),
+                ExtraFlowNodeInfo("flowspecific", "CurrentTryNumber", "1"),
+                ExtraFlowNodeInfo(
+                    "meter", "work", "3", "limits are [0 - 6]", editable=True,
+                ),
+                ExtraFlowNodeInfo("label", "jobid", "beaufixcn:85583522--mtool:407991"),
+                ExtraFlowNodeInfo(
+                    "trigger",
+                    "/leffe/B9GN/20190228/00/production/fc/topbd",
+                    "[complete]",
+                ),
+                ExtraFlowNodeInfo(
+                    "trigger",
+                    "/leffe/B9GN/20190227/00/production/fc_init/control_guess/clim_restart",
+                    "[complete]",
+                ),
+                ExtraFlowNodeInfo(
+                    "flowspecific",
+                    "MaxTries",
+                    "2",
+                    "inherited from '/leffe'",
+                    editable=True,
+                ),
+            ],
+        )
+
     @contextmanager
     def _create_tmp_smsrc(self, content: str):
+        """Create a fake .smsrc file"""
         tmp_fh = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -130,6 +208,7 @@ class TestCdpFlow(unittest.TestCase):
                 os.remove(tmp_fh.name)
 
     def test_sms_rc_reader(self):
+        """Test the .smsrc file reader."""
         # Empty file...
         with self._create_tmp_smsrc("") as rc_file:
             for mode in (0o644, 0o640, 0o722):

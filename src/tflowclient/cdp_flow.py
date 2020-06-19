@@ -18,7 +18,7 @@ import subprocess
 import sys
 import typing
 
-from .flow import FlowInterface, RootFlowNode, FlowNode, FlowStatus
+from .flow import FlowInterface, RootFlowNode, FlowNode, FlowStatus, ExtraFlowNodeInfo
 from .logs_gateway import LogsGateway, get_logs_gateway
 
 __all__ = [
@@ -101,6 +101,7 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
     """Add the necessary method to process any kind of CDP output."""
 
     _OUTPUT_IGNORE = re.compile(r"\s*(# MSG|Welcome|Goodbye)")
+    # Data for the status command output parser
     _STATUS_DETECT = re.compile(r"([\w/]+)\s*[{\[](\w{3})[\]}](\s*)")
     _STATUS_TRANSLATION = dict(
         com=FlowStatus.COMPLETE,
@@ -111,6 +112,16 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
         act=FlowStatus.ACTIVE,
         unk=FlowStatus.UNKNOWN,
     )
+    # Data for the info command output parser
+    _LIMIT_RE = re.compile(
+        r"\s+limit (?P<name>.*)\s+\[running (?P<run>\d+) max (?P<max>\d+)\]$"
+    )
+    _TRIES_CUR_RE = re.compile(r"Current try number:\s*(?P<cur>\d+)$")
+    _TRIES_MAX_RE = re.compile(r"\s+SMSTRIES\s*=\s*(?P<max>\d+)\s*\[(?P<from>.*)\]$")
+    _METER_RE = re.compile(r"\s+METER (?P<n>.*) is (?P<v>.*) limits are \[(?P<l>.*)\]$")
+    _LABEL_RE = re.compile(r"\s+LABEL (?P<n>.*) '(?P<v>.*)'$")
+    _TRIGGERED_BY_RE = re.compile(r"Nodes that trigger this node$")
+    _TRIGGER_RE = re.compile(r"\s+(?P<n>[^\s]+)\s+(?P<v>.+)$")
 
     @property
     @abc.abstractmethod
@@ -179,12 +190,87 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
                 last_matches.append(m_obj)
         return root_nodes
 
+    def _parse_info_outputs(self, output: str) -> typing.List[ExtraFlowNodeInfo]:
+        """Parse the CDP output returned by a 'info' command."""
+        info = list()
+
+        def _re_test(regex, kind, name, value=None, description="", editable=True):
+            re_m = regex.match(line)
+            if re_m:
+                info.append(
+                    ExtraFlowNodeInfo(
+                        kind,
+                        name.format(**re_m.groupdict()),
+                        value=value.format(**re_m.groupdict()) if value else value,
+                        description=description.format(**re_m.groupdict())
+                        if description
+                        else description,
+                        editable=editable,
+                    ),
+                )
+            return re_m
+
+        in_trigger_by = False
+        for line in output.split("\n"):
+            line = line.rstrip(" ")
+            # Ignore some ot the output lines
+            if self._OUTPUT_IGNORE.match(line):
+                continue
+            if in_trigger_by:
+                # We are currently reading triggers
+                if _re_test(
+                    self._TRIGGER_RE, "trigger", "{n:s}", "{v:s}", editable=False
+                ):
+                    continue
+                else:
+                    in_trigger_by = False
+            # trigger list begins
+            if self._TRIGGERED_BY_RE.match(line):
+                in_trigger_by = True
+                continue
+            # limits
+            if _re_test(
+                self._LIMIT_RE,
+                "limit",
+                "{name:s}",
+                "{max:s}",
+                "currently running: {run:s}",
+            ):
+                continue
+            # tries
+            if _re_test(
+                self._TRIES_CUR_RE,
+                "flowspecific",
+                "CurrentTryNumber",
+                "{cur:s}",
+                editable=False,
+            ):
+                continue
+            if _re_test(
+                self._TRIES_MAX_RE,
+                "flowspecific",
+                "MaxTries",
+                "{max:s}",
+                "inherited from '{from:s}'",
+            ):
+                continue
+            # meters
+            if _re_test(
+                self._METER_RE, "meter", "{n:s}", "{v:s}", "limits are [{l:s}]",
+            ):
+                continue
+            # labels
+            if _re_test(self._LABEL_RE, "label", "{n:s}", "{v:s}", editable=False):
+                continue
+        return info
+
 
 class CdpInterface(FlowInterface, CdpOutputParserMixin):
     """:class:`FlowInterface` class that interacts with an SMS CDP client."""
 
     @property
     def credentials_summary(self) -> str:
+        """A string identifying the server name and credentials."""
         return "{:s}@{:s}".format(self.credentials["user"], self.credentials["host"])
 
     def _valid_credentials(self, credentials: dict) -> dict:
@@ -330,3 +416,56 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
             if l_gateway.ping():
                 return l_gateway
         return None
+
+    def node_info(self, node: FlowNode) -> typing.List[ExtraFlowNodeInfo]:
+        """Fetch the node's information."""
+        i_output, ok = self._run_cdp_command(
+            "info -v /{:s}/{:s}".format(self.suite, node.full_path), ["fake_path"],
+        )
+        if ok:
+            info = self._parse_info_outputs(i_output)
+            logger.debug(
+                "Info for %s:\n%s", node.full_path, "\n".join([str(i) for i in info])
+            )
+            return info
+        else:
+            logger.warning("The info command failed.")
+            return [ExtraFlowNodeInfo("error", "The node's could not be retrieved")]
+
+    def _actual_save_node_info(
+        self, node: FlowNode, info: typing.List[ExtraFlowNodeInfo]
+    ) -> str:
+        """Record changes in the node's information."""
+        c_stack = []
+        node_sms_path = "/{:s}/{:s}".format(self.suite, node.full_path)
+        # Generate the list of command to be executed
+        for change in info:
+            if change.kind == "flowspecific" and change.name == "MaxTries":
+                if change.value:
+                    c_stack.append(
+                        "alter -v {:s} SMSTRIES {!s}".format(
+                            node_sms_path, change.value
+                        )
+                    )
+                else:
+                    c_stack.append("alter -r -v {:s} SMSTRIES".format(node_sms_path))
+            elif change.kind == "limit":
+                c_stack.append(
+                    "alter -M {:s}:{:s} {!s}".format(
+                        node_sms_path, change.name, change.value
+                    )
+                )
+                c_stack.append("reset {:s}:{:s}".format(node_sms_path, change.name))
+            elif change.kind == "meter":
+                c_stack.append(
+                    "alter -m {:s}:{:s} {!s}".format(
+                        node_sms_path, change.name, change.value
+                    )
+                )
+            else:
+                raise NotImplementedError(
+                    "Do not know how to update: {!s}".format(change)
+                )
+        # Execute the command stack
+        i_output, _ = self._run_cdp_command("\n".join(c_stack), ["fake_path"])
+        return i_output

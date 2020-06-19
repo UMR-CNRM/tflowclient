@@ -1,25 +1,34 @@
 # -*- coding: utf-8 -*-
 
+"""
+Test everything related to the tflowclient configuration parser
+"""
+
 import unittest
 
 from tflowclient.conf import TFlowClientConfig
 
 
 class TestConf(unittest.TestCase):
+    """Unit-test class for the configuration parser."""
 
     _default_palette = [
         ("ABORTED", "black", "dark red"),
         ("ABORTED_f", "black", "dark red"),
         ("ACTIVE", "black", "dark green"),
         ("ACTIVE_f", "black", "dark green"),
-        ("COMPLETED", "black", "light gray"),
-        ("COMPLETED_f", "black", "light gray"),
+        ("COMPLETE", "black", "yellow"),
+        ("COMPLETE_f", "black", "yellow"),
         ("QUEUED", "black", "white"),
         ("QUEUED_f", "black", "white"),
         ("SUBMITTED", "black", "dark cyan"),
         ("SUBMITTED_f", "black", "dark cyan"),
         ("SUSPENDED", "black", "brown"),
         ("SUSPENDED_f", "black", "brown"),
+        ("button", "black", "light gray"),
+        ("button_f", "white", "dark blue", "bold"),
+        ("editable", "black", "light gray"),
+        ("editable_f", "white", "dark blue", "bold"),
         ("flagged_treeline", "black", "dark magenta", ("bold", "underline")),
         ("flagged_treeline_f", "yellow", "dark magenta"),
         ("foot", "white", "black"),
@@ -32,6 +41,7 @@ class TestConf(unittest.TestCase):
     ]
 
     def assertPaletteConf(self, conf_line, expected, new=False):
+        """Assert if the palette is properly read from file."""
         res = TFlowClientConfig(
             conf_txt="""
             [palette]
@@ -44,6 +54,7 @@ class TestConf(unittest.TestCase):
         self.assertEqual(len(res), len(self._default_palette) + int(new))
 
     def test_palette(self):
+        """Test the palette reading."""
         self.assertListEqual(
             TFlowClientConfig(conf_txt="").palette, self._default_palette
         )
@@ -63,6 +74,7 @@ class TestConf(unittest.TestCase):
         )
 
     def test_urwid_stuff(self):
+        """Test urwid related config."""
         self.assertEqual(TFlowClientConfig(conf_txt="").urwid_backend, "raw")
         self.assertEqual(
             TFlowClientConfig(
@@ -114,6 +126,7 @@ class TestConf(unittest.TestCase):
             ).terminal_properties
 
     def test_cdp_stuff(self):
+        """Test SMS/CDP related config."""
         self.assertEqual(TFlowClientConfig(conf_txt="").cdp_default_host, None)
         self.assertEqual(TFlowClientConfig(conf_txt="").cdp_default_user, None)
         self.assertEqual(TFlowClientConfig(conf_txt="").cdp_default_suite, None)

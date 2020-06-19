@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
 
+"""
+tflowclient setuptools configuration file.
+"""
+
 from setuptools import setup
 
 
 def readme():
+    """Re-use the README.md file."""
     with open("README.md") as f:
         return f.read()
 

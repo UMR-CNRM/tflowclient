@@ -27,8 +27,8 @@ DEFAULT_PALETTE = dict(
     ABORTED_f=("black", "dark red"),
     SUBMITTED=("black", "dark cyan"),
     SUBMITTED_f=("black", "dark cyan"),
-    COMPLETED=("black", "light gray"),
-    COMPLETED_f=("black", "light gray"),
+    COMPLETE=("black", "yellow"),
+    COMPLETE_f=("black", "yellow"),
     QUEUED=("black", "white"),
     QUEUED_f=("black", "white"),
     warning=("black", "brown"),
@@ -42,6 +42,8 @@ DEFAULT_PALETTE = dict(
     title=("white", "black", "bold"),
     button=("black", "light gray"),
     button_f=("white", "dark blue", "bold"),
+    editable=("black", "light gray"),
+    editable_f=("white", "dark blue", "bold"),
 )
 
 
@@ -92,7 +94,7 @@ class TFlowClientConfig(object):
             )
             filename = os.path.expanduser(filename)
         f_handler = logging.handlers.TimedRotatingFileHandler(
-            filename, when="midnight", interval=1, backupCount=10, encoding="utf-8"
+            filename, when="midnight", interval=1, backupCount=3, encoding="utf-8"
         )
         # Formatter
         formatter = logging.Formatter(
@@ -154,6 +156,7 @@ class TFlowClientConfig(object):
                 v_items = [s.strip(" ") for s in v.split(",")]
                 v_items = [tuple(s.split("+")) if "+" in s else s for s in v_items]
                 palette[k] = tuple(v_items)
+            # noinspection PyTypeChecker
             full_palette.update(palette)
         return [(k, *v) for k, v in sorted(full_palette.items())]
 

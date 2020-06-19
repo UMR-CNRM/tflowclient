@@ -27,7 +27,13 @@ import typing
 from . import logs_gateway
 from . import observer
 
-__all__ = ["FlowStatus", "FlowNode", "RootFlowNode", "FlowInterface"]
+__all__ = [
+    "FlowStatus",
+    "FlowNode",
+    "RootFlowNode",
+    "FlowInterface",
+    "ExtraFlowNodeInfo",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -117,14 +123,19 @@ class FlowNode(observer.Subject):
         self._notify({"flagged": self.flagged})
 
     @property
-    def path(self):
-        """Return the full path to the requested node (relative to the root node)."""
+    def full_path(self):
+        """Return the full path to the requested node."""
         s_path = []
         current = self
         while current is not None:
             s_path.append(current.name)
             current = current.parent
-        return "/".join(reversed(s_path[:-1]))
+        return "/".join(reversed(s_path))
+
+    @property
+    def path(self):
+        """Return the path to the requested node (relative to the root node)."""
+        return "/".join(self.full_path.split("/")[1:])
 
     def set_expanded(self):
         """Set the `expanded` on this node and all its parents."""
@@ -292,6 +303,87 @@ class RootFlowNode(FlowNode):
         self._focused = value
 
 
+class ExtraFlowNodeInfo(object):
+    """An extra information on a FlowNode."""
+
+    def __init__(
+        self,
+        kind: str,
+        name: str,
+        value: str = None,
+        description: str = "",
+        editable: bool = False,
+    ):
+        """
+        :param kind: The kind of information (e.g. variable, meter, limit, ...)
+        :param name: The information name (e.g. SMSTRIES, ...)
+        :param value: The associated value
+        :param description: Some extra information
+        :param editable: Is this information editable or not ?
+        """
+        self._kind = kind
+        self._name = name
+        self._initial_value = value
+        self._value = None
+        self._description = description
+        self._editable = editable
+        if self._editable and self._initial_value is None:
+            raise ValueError("incoherent editable and value settings.")
+
+    def __eq__(self, other):
+        if isinstance(other, ExtraFlowNodeInfo):
+            return (
+                self.kind == other.kind
+                and self.name == other.name
+                and self.value == other.value
+                and self.description == other.description
+                and self.editable == other.editable
+            )
+        else:
+            return False
+
+    def __str__(self):
+        return "NodeInfo: {0.kind:s}-{0.name:s}. Value: {0.value!s}".format(self)
+
+    @property
+    def kind(self) -> str:
+        """The kind of information (e.g. variable, meter, limit, ...)."""
+        return self._kind
+
+    @property
+    def name(self) -> str:
+        """The information name (e.g. SMSTRIES, ...)."""
+        return self._name
+
+    @property
+    def value(self) -> str:
+        """The associated value."""
+        return self._initial_value if self._value is None else self._value
+
+    @value.setter
+    def value(self, new_value: str):
+        """Edit the current value (if allowed)."""
+        if not self.editable:
+            raise RuntimeError("A readonly information cannot be modified")
+        else:
+            self._value = new_value
+
+    @property
+    def description(self) -> str:
+        """Some extra information."""
+        return self._description
+
+    @property
+    def editable(self) -> bool:
+        """Is this information editable or not ?"""
+        return self._editable
+
+    @property
+    def touched(self) -> bool:
+        """``True`` if the value has been modified"""
+        return self._value is not None and self._value != self._initial_value
+
+
 class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
     """The interface to any workflow scheduler."""
 
@@ -323,8 +415,9 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         logger.debug('Entering in FlowInterface. Calling "_initialise_connection"')
         self._initialise_connection()
 
-        # Catch all signals and raise an exception
         def handler(signum, frame):
+            """Internal callback to deal with signals."""
+            assert frame
             raise BaseException("Signal {:d} was caught.".format(signum))
 
         all_signals = {
@@ -540,3 +633,28 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         Implement this method in a concrete class
         """
         return None
+
+    @abc.abstractmethod
+    def node_info(self, node: FlowNode) -> typing.List[ExtraFlowNodeInfo]:
+        """Return a bunch of information on a **node**.
+
+        Such as try number, meters, limits, ...
+        """
+        pass
+
+    @abc.abstractmethod
+    def _actual_save_node_info(
+        self, node: FlowNode, info: typing.List[ExtraFlowNodeInfo]
+    ) -> str:
+        """Save the modified information in a given **node**"""
+        pass
+
+    def save_node_info(
+        self, node: FlowNode, info: typing.List[ExtraFlowNodeInfo]
+    ) -> typing.Union[None, str]:
+        """Save the information associated in a given **node**."""
+        todo = [i for i in info if i.touched]
+        if todo:
+            return self._actual_save_node_info(node, todo)
+        else:
+            return None
