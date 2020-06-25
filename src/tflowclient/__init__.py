@@ -3,7 +3,7 @@
 #  Copyright (©) Meteo-France (2020-)
 #
 #  This software is a computer program whose purpose is to provide
-#   a text-based console clients to interact with various workflow schedulers.
+#   a text-based console client to interact with various workflow schedulers.
 #
 #  This software is governed by the CeCILL-C license under French law and
 #  abiding by the rules of distribution of free software.  You can  use,
@@ -62,6 +62,6 @@ Here are a few pointers for a better understanding of the code:
 
 __all__ = ["cdp_flow", "demo_flow", "TFlowApplication"]
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 from .ui import TFlowApplication

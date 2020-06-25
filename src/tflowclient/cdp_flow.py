@@ -3,7 +3,7 @@
 #  Copyright (©) Meteo-France (2020-)
 #
 #  This software is a computer program whose purpose is to provide
-#   a text-based console clients to interact with various workflow schedulers.
+#   a text-based console client to interact with various workflow schedulers.
 #
 #  This software is governed by the CeCILL-C license under French law and
 #  abiding by the rules of distribution of free software.  You can  use,
