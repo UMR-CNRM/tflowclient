@@ -336,12 +336,18 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
                 + str(e)
                 + "\n"
                 + "Standard Output:\n"
-                + e.stdout.decode(encoding=sys.getfilesystemencoding())
+                + e.stdout.decode(
+                    encoding=sys.getfilesystemencoding(), errors="replace"
+                )
                 + "Standard Error:\n"
-                + e.stderr.decode(encoding=sys.getfilesystemencoding())
+                + e.stderr.decode(
+                    encoding=sys.getfilesystemencoding(), errors="replace"
+                )
             )
         else:
-            output = output.decode(encoding=sys.getfilesystemencoding())
+            output = output.decode(
+                encoding=sys.getfilesystemencoding(), errors="replace"
+            )
         logger.debug('"%s" command result:\n%s', command, output)
         return output, rc == 0
 

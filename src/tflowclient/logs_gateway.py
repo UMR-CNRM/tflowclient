@@ -238,7 +238,7 @@ class SmsLogSvrGateway(StringBasedLogsGateway):
                     self.host, self.port
                 )
             )
-        return response.decode(encoding="utf-8", errors='replace')
+        return response.decode(encoding="utf-8", errors="replace")
 
     def ping(self, connect_timeout: int = 2) -> bool:
         """Try a dummy request just to check if the log_server is fine."""

@@ -15,7 +15,7 @@ def readme():
 
 setup(
     name="tflowview",
-    version="0.3.2",
+    version="0.3.3",
     description="A text-based viewer for ECMWF workflow schedulers.",
     long_description=readme(),
     classifiers=[
