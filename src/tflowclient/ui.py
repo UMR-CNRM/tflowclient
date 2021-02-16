@@ -55,6 +55,7 @@ Here are a few pointers:
 
 from __future__ import annotations
 
+import abc
 import collections
 import contextlib
 from datetime import datetime, timedelta
@@ -75,6 +76,14 @@ from .observer import Observer
 __all__ = ["TFlowApplication"]
 
 logger = logging.getLogger(__name__)
+
+_SERVER_WAIT_TEXT = urwid.Text(
+    [("warning", "Please wait until the server responds...")]
+)
+
+_NO_SELECTED_NODE = urwid.Text(
+    "No node is currently focused/selected. Please pick one."
+)
 
 
 # ------ Urwid Tree Widgets that help to build the statuses tree view ------
@@ -387,7 +396,7 @@ class TFlowTreeListBox(urwid.TreeListBox):
 class TFlowLongTextWidget(urwid.ListBox):
     """A scroll-able text-area."""
 
-    def __init__(self, textlist: typing.List[str]):
+    def __init__(self, textlist: typing.Iterable[str]):
         """
         :param textlist: The list of strings to be displayed.
         """
@@ -428,7 +437,7 @@ class KeyCaptureWrapper(urwid.WidgetWrap):
 # ------ Views are custom object that handle a given layout of the UI ------
 
 
-class TFlowAbstractView(object):
+class TFlowAbstractView(metaclass=abc.ABCMeta):
     """Any tflowclient views must inherit from this class"""
 
     footer_add_quit = True
@@ -490,10 +499,115 @@ class TFlowAbstractView(object):
         return key
 
 
-class TFlowCommandView(TFlowAbstractView):
-    """The view that is triggered when the user chooses to launch a command."""
+class TFlowAbstractCommandView(TFlowAbstractView):
+    """Common things for views that launch commands."""
 
-    footer_text = []
+    def __init__(
+        self,
+        flow_object: FlowInterface,
+        app_object: TFlowApplication,
+        root_node: typing.Union[FlowNode, None],
+        selected: typing.List[str],
+    ):
+        """
+        :param flow_object: The flow object currently being used
+        :param app_object: The application object
+        :param root_node: The FlowNode from which the path are computed
+        :param selected: This list of selected items (the command will be
+                        executed on them)
+        """
+        super().__init__(flow_object, app_object)
+        self.root_node = root_node
+        self.selected = selected
+        self._todo = None
+        if self.root_node is not None and self.selected:
+            self.pile = urwid.Pile([])
+            self.main_content = KeyCaptureWrapper(self.pile, current_view=self)
+            self._with_selected_init()
+        else:
+            # Display the "error" message, then go back
+            self.main_content = KeyCaptureWrapper(
+                urwid.Filler(_NO_SELECTED_NODE), current_view=self, propagate=False
+            )
+            self.footer_update([("key", "ESC/BACKSPACE"), ": back to statuses"])
+        self.main_content = urwid.Padding(self.main_content, left=1, right=1)
+
+    @abc.abstractmethod
+    def _with_selected_init(self):
+        """Create the main_content (when the list of selected items is populated)."""
+        raise NotImplementedError()
+
+    @property
+    def selected_text_container(self) -> TFlowLongTextWidget:
+        """The display widget for the list of selected nodes."""
+        radical = [
+            self.flow.suite,
+        ]
+        if self.root_node.full_path:
+            radical.extend(self.root_node.full_path.split("/"))
+        return TFlowLongTextWidget(
+            ["", "Selected nodes:"]
+            + ["/" + "/".join(radical + s.split("/")).strip("/") for s in self.selected]
+        )
+
+    def _do_command(self, command: str):
+        """Launch **command** and display the result."""
+        self._todo = command
+        # Ok. Just wait...
+        wait = urwid.Text(
+            (
+                "warning",
+                "\n\nPlease wait will the {:s} command is being issued...".format(
+                    command
+                ),
+            )
+        )
+        self.pile.contents = [(urwid.Filler(wait), ("weight", 1))]
+        self.footer_update()
+        self.app.loop.draw_screen()
+        # Display the result and wait for statuses to be refreshed
+        summary = self.flow.command_gateway(command, self.root_node, self.selected)
+        text_container = TFlowLongTextWidget(
+            ['Result for the "{:s}" command:'.format(command)] + summary.split("\n")
+        )
+        wait = urwid.Text(
+            ("warning", "Please wait will the statuses are being refreshed...")
+        )
+        self.pile.contents = [
+            (text_container, ("weight", 1)),
+            (urwid.Divider(), ("pack", 1)),
+            (wait, ("pack", 1)),
+            (urwid.Divider(), ("pack", 1)),
+        ]
+        self.footer_update()
+        self.app.loop.draw_screen()
+        self._do_post_command_update()
+        # We are done with waiting
+        wait.set_text("")
+        self.footer_update([("key", "ESC/ENTER/BACKSPACE"), ": back to statuses"])
+
+    def keypress_hook(self, key: str) -> typing.Union[str, None]:
+        """Handle key strokes."""
+        if self.selected and self._todo is None:
+            key = self._selected_keypress_hook(key)
+        if key in ("esc", "backspace"):
+            self.app.switch_view(self.app.main_view)
+        elif self._todo is not None and key == "enter":
+            self.app.switch_view(self.app.main_view)
+        else:
+            return key
+
+    @abc.abstractmethod
+    def _do_post_command_update(self):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def _selected_keypress_hook(self, key: str) -> typing.Union[str, None]:
+        raise NotImplementedError
+
+
+class TFlowCommandView(TFlowAbstractCommandView):
+    """The view that is triggered when the user chooses to launch a command."""
 
     #: (Command Display Name, Keyboard Shortcut, Command name in flow.py)
     available_commands = [
@@ -509,68 +623,45 @@ class TFlowCommandView(TFlowAbstractView):
         self,
         flow_object: FlowInterface,
         app_object: TFlowApplication,
-        root_node: RootFlowNode,
+        root_node: typing.Union[RootFlowNode, None],
     ):
         """
         :param flow_object: The flow object currently being used
         :param app_object: The application object
         :param root_node: The current active root FlowNode
         """
-        super().__init__(flow_object, app_object)
-        self.root_node = root_node
         # List of selected lines (append the suite name to be compatible with flow
         # schedulers tree)
-        self.selected = [
-            "/" + self.flow.suite + "/" + p for p in root_node.flagged_paths()
-        ]
-        if not self.selected:
-            # Try to use the focused_node
-            if root_node.focused is not None and self.app.main_view.focused_tree:
-                self.selected = [
-                    "/"
-                    + self.flow.suite
-                    + "/"
-                    + root_node.name
-                    + "/"
-                    + root_node.focused.path
-                ]
-        if self.selected:
-            # Prompt the user to choose a command
-            self.text_container = TFlowLongTextWidget(
-                ["", "Selected nodes:"] + self.selected
-            )
-            self.pile = urwid.Pile(
-                [
-                    self.text_container,
-                    ("pack", urwid.Divider()),
-                    ("pack", urwid.Text("Available commands:")),
-                    ("pack", self._commands_grid()),
-                    ("pack", urwid.Divider()),
-                ],
-                focus_item=0,
-            )
-            self.main_content = KeyCaptureWrapper(self.pile, current_view=self)
-            self.footer_update(
-                [
-                    (
-                        "key",
-                        "/".join(
-                            [av_c[1] for av_c in self.available_commands if av_c[1]]
-                        ),
-                    ),
-                    ": launch the command",
-                ],
-                [("key", "ESC/BACKSPACE"), ": back to statuses"],
-            )
+        if root_node is not None:
+            selected = root_node.flagged_paths()
+            if not selected:
+                # Try to use the focused_node
+                if root_node.focused is not None:
+                    selected = [root_node.focused.path]
+            super().__init__(flow_object, app_object, root_node, selected)
         else:
-            # Display the "error" message, then go back
-            self.text_container = urwid.Text("Select at least one node...")
-            self.main_content = KeyCaptureWrapper(
-                urwid.Filler(self.text_container), current_view=self, propagate=False
-            )
-            self.footer_update([("key", "ESC/ENTER/BACKSPACE"), ": back to statuses"])
-        self.main_content = urwid.Padding(self.main_content, left=1, right=1)
-        self._todo = None
+            super().__init__(flow_object, app_object, root_node, [])
+
+    def _with_selected_init(self):
+        """Prompt the user to choose a command."""
+        self.pile.contents = [
+            (self.selected_text_container, ("weight", 1)),
+            (urwid.Divider(), ("pack", 1)),
+            (urwid.Text("Available commands:"), ("pack", 1)),
+            (self._commands_grid(), ("pack", 1)),
+            (urwid.Divider(), ("pack", 1)),
+        ]
+        self.pile.focus_position = 0
+        self.footer_update(
+            [
+                (
+                    "key",
+                    "/".join([av_c[1] for av_c in self.available_commands if av_c[1]]),
+                ),
+                ": launch the command",
+            ],
+            [("key", "ESC/BACKSPACE"), ": back to statuses"],
+        )
 
     def _commands_grid(self) -> urwid.GridFlow:
         """Generate the list of Urwid buttons associated with each of the commands."""
@@ -597,69 +688,67 @@ class TFlowCommandView(TFlowAbstractView):
         assert isinstance(button, urwid.Button)
         self._do_command(user_data)
 
-    def _do_command(self, command: str):
-        """Launch **command** and display the result."""
-        self._todo = command
-        # Ok. Just wait...
-        wait = "\n\nPlease wait will the {:s} command is being issued...".format(
-            command
-        )
-        self.text_container = urwid.Text([("warning", wait)])
-        self.pile.contents = [(urwid.Filler(self.text_container), ("weight", 1))]
-        self.footer_update()
-        self.app.loop.draw_screen()
-        # Display the result and wait for statuses to be refreshed
-        summary = self.flow.command_gateway(command, self.root_node, self.selected)
-        self.text_container = TFlowLongTextWidget(
-            ['Result for the "{:s}" command:'.format(command)] + summary.split("\n")
-        )
-        wait = urwid.Text(
-            ("warning", "Please wait will the status tree is being refreshed...")
-        )
-        self.pile.contents = [
-            (self.text_container, ("weight", 1)),
-            (urwid.Divider(), ("pack", 1)),
-            (wait, ("pack", 1)),
-            (urwid.Divider(), ("pack", 1)),
-        ]
-        self.footer_update()
-        self.app.loop.draw_screen()
+    def _do_post_command_update(self):
         self.flow.refresh(self.root_node.name)
-        # We are done with waiting
-        wait.set_text("")
-        self.footer_update([("key", "ESC/ENTER/BACKSPACE"), ": back to statuses"])
 
-    def keypress_hook(self, key: str) -> typing.Union[str, None]:
-        """Handle key strokes."""
-        if self.selected and self._todo is None:
-            for av_c in self.available_commands:
-                if av_c[1] and key.upper() == av_c[1]:
-                    self._do_command(av_c[2])
-                    return
-            if key in ("esc", "backspace"):
-                self.app.switch_view(self.app.main_view)
-            else:
-                return key
-        else:
-            if key in ("esc", "enter", "backspace"):
-                self.app.switch_view(self.app.main_view)
-            else:
-                return key
+    def _selected_keypress_hook(self, key: str) -> typing.Union[str, None]:
+        for av_c in self.available_commands:
+            if av_c[1] and key.upper() == av_c[1]:
+                self._do_command(av_c[2])
+                return
+        return key
 
 
-class TFlowLogsView(TFlowAbstractView):
-    """The view that is triggered when the user chooses to browse the log files."""
-
-    footer_text = [
-        [("key", "ESC/BACKSPACE"), ": back to statuses"],
-        [("key", "ENTER/SPACE"), ": view the selected file"],
-    ]
+class TFlowCancelCommandView(TFlowAbstractCommandView):
+    """The view that is triggered when the user chooses to launch a command."""
 
     def __init__(
         self,
         flow_object: FlowInterface,
         app_object: TFlowApplication,
-        root_node: RootFlowNode,
+        selected_nodes: typing.Iterable[RootFlowNode],
+    ):
+        """
+        :param flow_object: The flow object currently being used
+        :param app_object: The application object
+        :param selected_nodes: The selected root nodes
+        """
+        selected = [s_node.full_path for s_node in selected_nodes]
+        super().__init__(flow_object, app_object, flow_object.tree_roots, selected)
+
+    def _with_selected_init(self):
+        # Ask for confirmation
+        self.pile.contents = [
+            (self.selected_text_container, ("weight", 1)),
+            (urwid.Divider(), ("pack", 1)),
+            (urwid.Text(("warning", "Hit 'C' to Cancel all these nodes")), ("pack", 1)),
+            (urwid.Divider(), ("pack", 1)),
+        ]
+        self.pile.focus_position = 0
+        self.footer_update(
+            [("key", "C"), ": Cancel nodes"],
+            [("key", "ESC/BACKSPACE"), ": back to statuses"],
+        )
+
+    def _do_post_command_update(self):
+        self.flow.refresh_tree_roots()
+
+    def _selected_keypress_hook(self, key: str) -> typing.Union[str, None]:
+        if key in ("c", "C"):
+            self._do_command("cancel")
+        return key
+
+
+class TFlowLogsView(TFlowAbstractView):
+    """The view that is triggered when the user chooses to browse the log files."""
+
+    footer_text = [[("key", "ESC/BACKSPACE"), ": back to statuses"]]
+
+    def __init__(
+        self,
+        flow_object: FlowInterface,
+        app_object: TFlowApplication,
+        root_node: typing.Union[RootFlowNode, None],
     ):
         """
         :param flow_object: The flow object currently being used
@@ -667,21 +756,19 @@ class TFlowLogsView(TFlowAbstractView):
         :param root_node: The current active root FlowNode
         """
         super().__init__(flow_object, app_object)
-        self.focused_node = root_node.focused
-        self.focused_path = (
-            "/" + self.flow.suite + "/" + root_node.name + "/" + self.focused_node.path
-            if self.focused_node is not None and self.app.main_view.focused_tree
-            else None
-        )
+        self.focused_node = None
+        self.focused_path = None
         self.buttons = []
+        if root_node is not None:
+            self.focused_node = root_node.focused
+            if self.focused_node is not None:
+                self.focused_path = self.focused_node.full_path
         if self.focused_path is None:
-            self.text_container = urwid.Text(
-                "No node is currently focused. Please pick one."
-            )
+            self.text_container = _NO_SELECTED_NODE
         elif len(self.focused_node):
             self.text_container = urwid.Text(
-                "The focused node ({:s}) is not a leaf node (i.e. a Task).".format(
-                    self.focused_path
+                "The focused node (/{:s}/{:s}) is not a leaf node (i.e. a Task).".format(
+                    self.flow.suite, self.focused_path
                 )
             )
         else:
@@ -699,15 +786,16 @@ class TFlowLogsView(TFlowAbstractView):
                     ]
                 )
                 logger.error(
-                    "Error while fetching log files list for path '%s':\n%s",
+                    "Error while fetching log files list for path '/%s/%s':\n%s",
+                    self.flow.suite,
                     self.focused_path,
                     e,
                 )
             else:
                 if av_listings:
                     self.text_container = urwid.Text(
-                        "For node: {:s}\n\nThe available log files are:\n".format(
-                            self.focused_path
+                        "For node: /{:s}/{:s}\n\nThe available log files are:\n".format(
+                            self.flow.suite, self.focused_path
                         )
                     )
                     cur_time = datetime.utcnow()
@@ -733,8 +821,8 @@ class TFlowLogsView(TFlowAbstractView):
                         )
                 else:
                     self.text_container = urwid.Text(
-                        "No log files are available for:\n{:s}".format(
-                            self.focused_path
+                        "No log files are available for:\n/{:s}/{:s}".format(
+                            self.flow.suite, self.focused_path
                         )
                     )
         if self.buttons:
@@ -745,6 +833,7 @@ class TFlowLogsView(TFlowAbstractView):
                 ]
             )
             self.main_content = KeyCaptureWrapper(self.pile, current_view=self)
+            self.footer_update([("key", "ENTER/SPACE"), ": view the selected file"])
         else:
             self.main_content = KeyCaptureWrapper(
                 urwid.Filler(self.text_container), current_view=self, propagate=False
@@ -772,8 +861,9 @@ class TFlowLogsView(TFlowAbstractView):
                 ]
             )
             logger.error(
-                "Error while fetching '%s' for path '%s':\n%s",
+                "Error while fetching '%s' for path '/%s/%s':\n%s",
                 log_listing,
+                self.flow.suite,
                 self.focused_path,
                 e,
             )
@@ -795,34 +885,34 @@ class TFlowInfoView(TFlowAbstractView):
         self,
         flow_object: FlowInterface,
         app_object: TFlowApplication,
-        visited_node: FlowNode,
+        visited_node: typing.Union[FlowNode, None],
+        read_only: bool = False,
     ):
         """
         :param flow_object: The flow object currently being used
         :param app_object: The application object
         :param visited_node: The current FlowNode
+        :param read_only: Do not allow any change
         """
         self.footer_add_quit = False
         super().__init__(flow_object, app_object)
         self._visited_node = visited_node
+        self._read_only = read_only
         self._info = []
         self._result = False
         # Wait screen...
-        self.wait = "Please wait until the SMS server responds..."
-        self.wait = urwid.Filler(urwid.Text([("warning", self.wait)]))
-        if self.app.main_view.focused_tree:
+        self.wait = urwid.Filler(_SERVER_WAIT_TEXT)
+        if self._visited_node is not None:
             self.pile = urwid.Pile([self.wait])
         else:
-            not_in_tree = "No node selected..."
-            not_in_tree = urwid.Filler(urwid.Text([("warning", not_in_tree)]))
-            self.pile = urwid.Pile([not_in_tree])
+            self.pile = urwid.Pile([urwid.Filler(_NO_SELECTED_NODE)])
         x_pile = KeyCaptureWrapper(self.pile, current_view=self)
         self.main_content = urwid.Padding(x_pile, left=1, right=1)
 
     # noinspection PyTypeChecker
     def switch_post_in_hook(self):
         """Fetch the data and display it."""
-        if not self.app.main_view.focused_tree:
+        if self._visited_node is None:
             self._refresh_footer()
             return
         # make the wait screen pop up
@@ -840,7 +930,7 @@ class TFlowInfoView(TFlowAbstractView):
             to_pile_up.append(urwid.Text(("title", kind.upper() + ":")))
             for item in info:
                 caption = "- {:s}".format(item.name)
-                if item.editable:
+                if item.editable and not self._read_only:
                     edit_w = urwid.Edit(edit_text=item.value)
                     urwid.connect_signal(
                         edit_w,
@@ -863,7 +953,17 @@ class TFlowInfoView(TFlowAbstractView):
                     )
                 if item.description:
                     to_pile_up.append(urwid.Text("  # ({:s})".format(item.description)))
-        if not to_pile_up:
+        if to_pile_up:
+            to_pile_up.insert(
+                0,
+                urwid.Text(
+                    "Node information for /{:s}/{:s}".format(
+                        self.flow.suite, self._visited_node.full_path
+                    )
+                ),
+            )
+            to_pile_up.insert(0, urwid.Divider())
+        else:
             to_pile_up = [ExtraFlowNodeInfo("info", "Nothing to be displayed...")]
         self.pile.contents = [
             (urwid.ListBox(urwid.SimpleListWalker(to_pile_up)), ("weight", 1))
@@ -876,7 +976,12 @@ class TFlowInfoView(TFlowAbstractView):
 
     def _refresh_footer(self):
         """Add the entry related to "ENTER" only when sensible."""
-        todo = [[("key", "ESC"), ": back to statuses"]]
+        if self._visited_node is None:
+            todo = [[("key", "ESC/BACKSPACE"), ": back to statuses"]]
+        elif self._read_only:
+            todo = [[("key", "ESC/ENTER/BACKSPACE"), ": back to statuses"]]
+        else:
+            todo = [[("key", "ESC"), ": back to statuses"]]
         if self.touched:
             todo.append([("key", "ENTER"), ": save & go back"])
         self.footer_update(*todo)
@@ -898,7 +1003,9 @@ class TFlowInfoView(TFlowAbstractView):
                 return key
         else:
             # Main display ...
-            if key == "esc":
+            if key == "esc" or (key == "backspace" and self._visited_node is None):
+                self.app.switch_view(self.app.main_view)
+            elif key in ("enter", "backspace") and self._read_only:
                 self.app.switch_view(self.app.main_view)
             elif key == "enter" and self.touched:
                 # This may take a while: display a message
@@ -984,6 +1091,171 @@ class TFlowQuitView(TFlowAbstractView):
     def footer_update(self, *extras: list):
         """Empty the footer text."""
         self.footer = urwid.GridFlow([], 1, h_sep=2, v_sep=0, align="left")
+
+
+class TFlowCancelMainView(TFlowAbstractView, Observer):
+    """The application' main view (statuses tree)."""
+
+    footer_text = [
+        [("key", "ENTER or SPACE"), ": Select"],
+        [("key", "U"), ": Un-select all"],
+        [("key", "R"), ": Refresh list"],
+        [("key", "I"), ": Node Info"],
+        [("key", "C"), ": Cancel selected"],
+    ]
+
+    timer_interval = 1
+
+    def __init__(self, flow_object: FlowInterface, app_object: TFlowApplication):
+        """
+        :param flow_object: The flow object currently being used
+        :param app_object: The application object
+        """
+        super().__init__(flow_object, app_object)
+        # Populate the root nodes list and display the first item in the tree widget
+        self._timer = None
+        # The wait screen...
+        self.main_wait = KeyCaptureWrapper(
+            urwid.Padding(urwid.Filler(_SERVER_WAIT_TEXT), left=1, right=1),
+            current_view=self,
+        )
+        # Create the appropriate layout (root nodes on the left, tree on the right)
+        self.grid_flow = urwid.GridFlow(
+            cells=[], cell_width=8, h_sep=1, v_sep=0, align="left"
+        )
+        self.main_frame = KeyCaptureWrapper(
+            urwid.Frame(
+                urwid.Filler(self.grid_flow),
+                header=urwid.Pile(
+                    [
+                        urwid.Divider(),
+                        urwid.Text("Select the experiment(s) you want to cancel:"),
+                    ]
+                ),
+            ),
+            current_view=self,
+        )
+        self.update_flow_roots()
+        # Start monitoring changes in the FlowInterface
+        self.flow.observer_attach(self)
+        # Ok, jump to the main view
+        self.main_content = self.main_frame
+
+    @contextlib.contextmanager
+    def temporary_wait_display(self, condition: bool = True):
+        """If **condition**, display the void Tree will inside the content manager."""
+        if condition and self.main_content is not self.main_wait:
+            self.main_content = self.main_wait
+            self.app.loop.draw_screen()
+            yield
+            self.main_content = self.main_frame
+        else:
+            yield
+
+    def update_obs_item(self, item: FlowInterface, info: dict):
+        """Listen to the FlowInterface and update the UI accordingly"""
+        if "tree_roots" in info:
+            logger.debug('Tree root change notified by "%r"', item)
+            self.update_flow_roots()
+
+    def keypress_hook(self, key: str) -> typing.Union[str, None]:
+        """Handle key strokes."""
+        if key in ("i", "I"):
+            self.info_dialog()
+        elif key in ("c", "C"):
+            self.cancel_dialog()
+        elif key in ("u", "U"):
+            logger.debug("Global un-select triggered by user.")
+            for c_box in self.grid_flow.contents:
+                c_box[0].state = False
+        elif key in ("r", "R"):
+            with self.temporary_wait_display():
+                self.flow.refresh_tree_roots()
+        else:
+            return key
+
+    @property
+    def focused_node_name(self) -> typing.Union[str, None]:
+        """The name of the selected."""
+        focused = self.grid_flow.focus
+        return None if focused is None else focused.label
+
+    @property
+    def focused_node(self) -> typing.Union[FlowNode, None]:
+        """The object representing the selected node."""
+        return (
+            None
+            if self.focused_node_name is None
+            else self.flow.tree_roots[self.focused_node_name]
+        )
+
+    @property
+    def selected_nodes_names(self) -> typing.Iterable[str]:
+        """The names of the selected nodes."""
+        return [c[0].label for c in self.grid_flow.contents if c[0].state]
+
+    @property
+    def selected_nodes(self) -> typing.Iterable[RootFlowNode]:
+        """The object representing the selected nodes."""
+        return [self.flow.tree_roots[n] for n in self.selected_nodes_names]
+
+    def update_flow_roots(self):
+        """Update the list of root nodes (aka Tree roots)."""
+        # Stop any previous age updater
+        if self._timer is not None:
+            logger.debug("Cancelling active timer: %s", self._timer)
+            self.app.loop.remove_alarm(self._timer)
+            self.header_update()
+            self._timer = None
+        # Update the root nodes list
+        g_flow_focused = self.focused_node_name
+        g_flow_checked = set(self.selected_nodes_names)
+        g_flow_opts = self.grid_flow.options()
+        self.grid_flow.contents.clear()
+        self.grid_flow.contents.extend(
+            [
+                (urwid.CheckBox((tr.status.name, tr.name)), g_flow_opts)
+                for tr in sorted(self.flow.tree_roots, key=lambda tr: tr.name)
+            ]
+        )
+        self.grid_flow.cell_width = 4 + max(
+            [len(tr.name) for tr in self.flow.tree_roots]
+        )
+        # Preserve the focused/checked node
+        for i_box, c_box in enumerate(self.grid_flow.contents):
+            if c_box[0].label == g_flow_focused:
+                self.grid_flow.set_focus(i_box)
+            if c_box[0].label in g_flow_checked:
+                c_box[0].state = True
+        if g_flow_focused is None or g_flow_focused not in self.flow.tree_roots:
+            self.grid_flow.set_focus(0)
+        self._timer = self.app.loop.set_alarm_in(
+            self.timer_interval, self.age_auto_update
+        )
+        logger.debug("Timer for age update is: %s", self._timer)
+
+    # noinspection PyUnusedLocal
+    def age_auto_update(self, current_loop: urwid.MainLoop, user_data=None):
+        """Increment the root Node age."""
+        self._timer = None
+        self.header_update(
+            "Information is {:.0f} seconds old.".format(self.flow.tree_roots.age)
+        )
+        self._timer = current_loop.set_alarm_in(
+            self.timer_interval, self.age_auto_update
+        )
+
+    def info_dialog(self):
+        """Open the info view dialog"""
+        logger.debug('Info dialog requested by user on "%s".', self.focused_node_name)
+        l_view = TFlowInfoView(self.flow, self.app, self.focused_node, read_only=True)
+        self.app.switch_view(l_view)
+
+    def cancel_dialog(self):
+        """Open the info view dialog"""
+        logger.debug("Cancel dialog requested by user.")
+        l_view = TFlowCancelCommandView(self.flow, self.app, self.selected_nodes)
+        self.app.switch_view(l_view)
 
 
 class TFlowMainView(TFlowAbstractView, Observer):
@@ -1279,19 +1551,32 @@ class TFlowMainView(TFlowAbstractView, Observer):
     def command_dialog(self):
         """Open the command dialog"""
         logger.debug('Command dialog requested by user on "%s".', self.active_root)
-        c_view = TFlowCommandView(self.flow, self.app, root_node=self.active_root_node)
+        if self.focused_tree:
+            c_view = TFlowCommandView(
+                self.flow, self.app, root_node=self.active_root_node
+            )
+        else:
+            c_view = TFlowCommandView(self.flow, self.app, root_node=None)
         self.app.switch_view(c_view)
 
     def logs_dialog(self):
         """Open the log files view dialog"""
         logger.debug('Logs dialog requested by user on "%s".', self.active_root)
-        l_view = TFlowLogsView(self.flow, self.app, root_node=self.active_root_node)
+        if self.focused_tree:
+            l_view = TFlowLogsView(self.flow, self.app, root_node=self.active_root_node)
+        else:
+            l_view = TFlowLogsView(self.flow, self.app, root_node=None)
         self.app.switch_view(l_view)
 
     def info_dialog(self):
         """Open the info view dialog"""
         logger.debug('Info dialog requested by user on "%s".', self.active_root)
-        l_view = TFlowInfoView(self.flow, self.app, self.active_root_node.focused)
+        if self.focused_tree:
+            l_view = TFlowInfoView(
+                self.flow, self.app, visited_node=self.active_root_node.focused
+            )
+        else:
+            l_view = TFlowInfoView(self.flow, self.app, visited_node=None)
         self.app.switch_view(l_view)
 
 
@@ -1301,11 +1586,19 @@ class TFlowMainView(TFlowAbstractView, Observer):
 class TFlowApplication(object):
     """The object representing the tflowclient UI."""
 
-    def __init__(self, flow_object: FlowInterface):
+    _APPS = {
+        "TreeView": TFlowMainView,
+        "Cancel": TFlowCancelMainView,
+    }
+
+    def __init__(self, flow_object: FlowInterface, app_name: str = "TreeView"):
         """
         :param flow_object: The Flow interface currently being used.
+        :param app_name: Which application should be started
         """
         self.flow = flow_object
+        if app_name not in self._APPS:
+            raise ValueError('Unauthorised "app_name" value: {:s}'.format(app_name))
         # Create the Frame widget that will be used in the whole application
         self.view = urwid.Frame(urwid.Filler(urwid.Text("Initialising...")))
         # Create the main loop
@@ -1335,7 +1628,7 @@ class TFlowApplication(object):
         )
         # Create the Main (tree) view and display it
         self.current_view = None
-        self.main_view = TFlowMainView(self.flow, self)
+        self.main_view = self._APPS[app_name](self.flow, self)
         self.switch_view(self.main_view)
         # Create the Quit view (just in case)
         self.quit_view = TFlowQuitView(self.flow, self)

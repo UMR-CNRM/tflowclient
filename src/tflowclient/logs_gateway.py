@@ -244,7 +244,7 @@ class SmsLogSvrGateway(StringBasedLogsGateway):
         """Try a dummy request just to check if the log_server is fine."""
         try:
             self._query_server(
-                "list {:s}/fakesuite/fakexp/task.0".format(self.path),
+                "list {:s}/fakexp/task.0".format(self.path),
                 connect_timeout=connect_timeout,
             )
         except LogsGatewayRuntimeError:
@@ -253,7 +253,9 @@ class SmsLogSvrGateway(StringBasedLogsGateway):
 
     def _retrieve_files_list(self, path: str) -> typing.Set[str]:
         """Get the log files list (from server)."""
-        f_list = self._query_server("list {:s}{:s}.0".format(self.path, path))
+        f_list = self._query_server(
+            "list {:s}/{:s}.0".format(self.path, path.strip("/"))
+        )
         if f_list:
             f_list = [
                 line.strip(" ").split(" ")

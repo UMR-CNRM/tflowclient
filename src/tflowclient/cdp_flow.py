@@ -133,7 +133,7 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
 
     _OUTPUT_IGNORE = re.compile(r"\s*(# MSG|Welcome|Goodbye)")
     # Data for the status command output parser
-    _STATUS_DETECT = re.compile(r"([\w/]+)\s*[{\[](\w{3})[\]}](\s*)")
+    _STATUS_DETECT = re.compile(r"([\w/]+)\s*[{\[](\w{3})[]}](\s*)")
     _STATUS_TRANSLATION = dict(
         com=FlowStatus.COMPLETE,
         que=FlowStatus.QUEUED,
@@ -145,11 +145,11 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
     )
     # Data for the info command output parser
     _LIMIT_RE = re.compile(
-        r"\s+limit (?P<name>.*)\s+\[running (?P<run>\d+) max (?P<max>\d+)\]$"
+        r"\s+limit (?P<name>.*)\s+\[running (?P<run>\d+) max (?P<max>\d+)]$"
     )
     _TRIES_CUR_RE = re.compile(r"Current try number:\s*(?P<cur>\d+)$")
-    _TRIES_MAX_RE = re.compile(r"\s+SMSTRIES\s*=\s*(?P<max>\d+)\s*\[(?P<from>.*)\]$")
-    _METER_RE = re.compile(r"\s+METER (?P<n>.*) is (?P<v>.*) limits are \[(?P<l>.*)\]$")
+    _TRIES_MAX_RE = re.compile(r"\s+SMSTRIES\s*=\s*(?P<max>\d+)\s*\[(?P<from>.*)]$")
+    _METER_RE = re.compile(r"\s+METER (?P<n>.*) is (?P<v>.*) limits are \[(?P<l>.*)]$")
     _LABEL_RE = re.compile(r"\s+LABEL (?P<n>.*) '(?P<v>.*)'$")
     _TRIGGERED_BY_RE = re.compile(r"Nodes that trigger this node$")
     _TRIGGER_RE = re.compile(r"\s+(?P<n>[^\s]+)\s+(?P<v>.+)$")
@@ -299,6 +299,8 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
 class CdpInterface(FlowInterface, CdpOutputParserMixin):
     """:class:`FlowInterface` class that interacts with an SMS CDP client."""
 
+    _DUMMY_SUITE_ROOT = RootFlowNode("", FlowStatus.UNKNOWN)
+
     @property
     def credentials_summary(self) -> str:
         """A string identifying the server name and credentials."""
@@ -310,10 +312,15 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
         return credentials
 
     def _run_cdp_command(
-        self, command: str, paths: typing.List[str]
+        self, command: str, root_node: FlowNode, paths: typing.List[str]
     ) -> typing.Tuple[str, bool]:
-        todo = "\n".join([command.format(p) for p in paths] + ["exit"])
-        todo = todo.encode(encoding="utf-8")
+        todo = "\n".join(
+            [
+                command.format("/" + p)
+                for p in self._command_path_expand(root_node, paths)
+            ]
+            + ["exit"]
+        )
         cmd = [
             self.credentials["cdp_path"],
             self.credentials["host"],
@@ -323,7 +330,9 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
         displayable_cmd = " ".join(cmd[:-1] + ["masked_password"])
         rc = 0
         try:
-            output = subprocess.check_output(cmd, input=todo, stderr=subprocess.PIPE)
+            output = subprocess.check_output(
+                cmd, input=todo.encode(encoding="utf-8"), stderr=subprocess.PIPE
+            )
         except subprocess.CalledProcessError as e:
             logger.error(
                 "Error while running cdp:\n  cmd=%s\n  exception=%s",
@@ -348,14 +357,15 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
             output = output.decode(
                 encoding=sys.getfilesystemencoding(), errors="replace"
             )
-        logger.debug('"%s" command result:\n%s', command, output)
+        logger.debug('Command launched:\n"%s"\nresult:\n%s', todo, output)
         return output, rc == 0
 
+    @staticmethod
     def _build_tree_roots(
-        self, parsed_status: typing.Dict[str, RootFlowNode]
+        parsed_status: typing.Dict[str, RootFlowNode]
     ) -> RootFlowNode:
         """Return tree roots given a parsed CDP output."""
-        rfn = RootFlowNode(self.suite, FlowStatus.UNKNOWN)
+        rfn = RootFlowNode("", FlowStatus.UNKNOWN)
         for node in parsed_status.values():
             rfn.add(node.name, node.status)
         return rfn
@@ -363,13 +373,13 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
     def _retrieve_tree_roots(self) -> RootFlowNode:
         """Retrieve the list of root nodes form the SMS server."""
         s_output, ok = self._run_cdp_command(
-            "status {:s}", ["/{:s}".format(self.suite)]
+            "status {:s}", self._DUMMY_SUITE_ROOT, [""]
         )
         if ok:
             parsed_result = self._parse_status_output(s_output)
             return self._build_tree_roots(parsed_result)
         else:
-            return RootFlowNode(self.suite, FlowStatus.UNKNOWN)
+            return RootFlowNode("", FlowStatus.UNKNOWN)
 
     def _retrieve_status(self, path: str) -> RootFlowNode:
         """Retrieve the full statuses tree for the **path** root node."""
@@ -381,7 +391,8 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
                     "status -f /{:s}/{:s}".format(self.suite, path),
                 ]
             ),
-            ["fake_path"],
+            self._DUMMY_SUITE_ROOT,
+            ["fake_path",],
         )
         if ok:
             full_parsed_result = self._parse_status_output(s_output)
@@ -399,37 +410,44 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
 
     def do_rerun(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """The SMS ``rerun`` command."""
-        output, _ = self._run_cdp_command("force queued {:s}", paths)
+        output, _ = self._run_cdp_command("force queued {:s}", root_node, paths)
         return output
 
     def do_execute(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """The SMS ``execute`` command."""
-        output, _ = self._run_cdp_command("run -fc {:s}", paths)
+        output, _ = self._run_cdp_command("run -fc {:s}", root_node, paths)
         return output
 
     def do_suspend(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """The SMS ``suspend`` command."""
-        output, _ = self._run_cdp_command("suspend {:s}", paths)
+        output, _ = self._run_cdp_command("suspend {:s}", root_node, paths)
         return output
 
     def do_resume(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """The SMS ``resume`` command."""
-        output, _ = self._run_cdp_command("resume {:s}", paths)
+        output, _ = self._run_cdp_command("resume {:s}", root_node, paths)
         return output
 
     def do_complete(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """The SMS ``complete`` command."""
-        output, _ = self._run_cdp_command("force -r complete {:s}", paths)
+        output, _ = self._run_cdp_command("force -r complete {:s}", root_node, paths)
         return output
 
     def do_requeue(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """The SMS ``rerun`` command."""
-        output, _ = self._run_cdp_command("requeue -f {:s}", paths)
+        output, _ = self._run_cdp_command("requeue -f {:s}", root_node, paths)
+        return output
+
+    def do_cancel(self, root_node: FlowNode, paths: typing.List[str]) -> str:
+        """The SMS ``cancel`` command."""
+        output, _ = self._run_cdp_command("cancel -y {:s}", root_node, paths)
         return output
 
     def _logs_gateway_create(self) -> typing.Union[LogsGateway, None]:
         """Create a SMS LogsGateway object."""
-        output, _ = self._run_cdp_command("info -v /", ["/",])
+        output, _ = self._run_cdp_command(
+            "info -v /", self._DUMMY_SUITE_ROOT, ["fake_path",]
+        )
         re_log_path = re.compile(r"\s*SMSHOME\s*=\s*([^\s]+)")
         re_log_host = re.compile(r"\s*SMSLOGHOST\s*=\s*([-.\w]+)")
         re_log_port = re.compile(r"\s*SMSLOGPORT\s*=\s*(\d+)")
@@ -439,7 +457,7 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
         for line in output.split("\n"):
             m_path = re_log_path.match(line)
             if m_path:
-                log_path = m_path.group(1)
+                log_path = "/".join([m_path.group(1), self.suite])
             m_host = re_log_host.match(line)
             if m_host:
                 log_host = m_host.group(1)
@@ -457,7 +475,7 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
     def node_info(self, node: FlowNode) -> typing.List[ExtraFlowNodeInfo]:
         """Fetch the node's information."""
         i_output, ok = self._run_cdp_command(
-            "info -v /{:s}/{:s}".format(self.suite, node.full_path), ["fake_path"],
+            "info -v /{:s}", self._DUMMY_SUITE_ROOT, [node.full_path,],
         )
         if ok:
             info = self._parse_info_outputs(i_output)
@@ -504,5 +522,7 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
                     "Do not know how to update: {!s}".format(change)
                 )
         # Execute the command stack
-        i_output, _ = self._run_cdp_command("\n".join(c_stack), ["fake_path"])
+        i_output, _ = self._run_cdp_command(
+            "\n".join(c_stack), self._DUMMY_SUITE_ROOT, ["fake_path"]
+        )
         return i_output

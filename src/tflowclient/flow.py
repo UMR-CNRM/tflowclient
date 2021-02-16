@@ -153,20 +153,24 @@ class FlowNode(observer.Subject):
         self._flagged = bool(value)
         self._notify({"flagged": self.flagged})
 
-    @property
-    def full_path(self):
-        """Return the full path to the requested node."""
+    def _compute_path(self, with_root=True):
         s_path = []
         current = self
         while current is not None:
-            s_path.append(current.name)
+            if current.name and (with_root or current.parent is not None):
+                s_path.append(current.name)
             current = current.parent
         return "/".join(reversed(s_path))
 
     @property
+    def full_path(self):
+        """Return the full path to the requested node."""
+        return self._compute_path()
+
+    @property
     def path(self):
         """Return the path to the requested node (relative to the root node)."""
-        return "/".join(self.full_path.split("/")[1:])
+        return self._compute_path(with_root=False)
 
     def set_expanded(self):
         """Set the `expanded` on this node and all its parents."""
@@ -253,7 +257,7 @@ class FlowNode(observer.Subject):
                         return e_leaf
         return None
 
-    def iter_flagged_paths(self, path_base: str) -> list:
+    def iter_flagged_paths(self, path_base: str) -> typing.List[str]:
         """Internal method: iterate through the nodes tree."""
         flagged = list()
         path_base = (path_base + "/" if path_base else "") + self.name
@@ -263,12 +267,17 @@ class FlowNode(observer.Subject):
             flagged.extend(c_node.iter_flagged_paths(path_base))
         return flagged
 
-    def flagged_paths(self) -> list:
+    def flagged_paths(self) -> typing.List[str]:
         """
         Return a list of paths to objects that are currently ``flagged`` below
         the current node.
         """
-        return self.iter_flagged_paths("")
+        flagged = []
+        if self.flagged:
+            flagged.append("")
+        for c_node in self:
+            flagged.extend(c_node.iter_flagged_paths(""))
+        return flagged
 
     def flag_status(self, status: FlowStatus, leaf: bool = True):
         """Recursively flag all the nodes that correspond to a given **status**.
@@ -554,7 +563,7 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def _retrieve_tree_roots(self) -> RootFlowNode:
         """Retrieve the list of root nodes form the workflow scheduler server."""
-        return RootFlowNode("fake", FlowStatus.ABORTED)
+        return RootFlowNode("", FlowStatus.ABORTED)
 
     def _notify_status(self, path: str):
         """Notify status changes to observers."""
@@ -592,6 +601,11 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         """Retrieve the full statuses tree for the **path** root node."""
         return RootFlowNode("fake", FlowStatus.ABORTED)
 
+    def refresh_tree_roots(self):
+        """Refresh the list of root nodes."""
+        if self.tree_roots.age > self.min_refresh_interval:
+            self._set_tree_roots(self._retrieve_tree_roots())
+
     def refresh(self, path: str):
         """
         Refresh both the list of root nodes and the status for the **path**
@@ -605,8 +619,19 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         ):
             self._set_full_status(path, self._retrieve_status(path))
         # Update tree roots...
-        if self.tree_roots.age > self.min_refresh_interval:
-            self._set_tree_roots(self._retrieve_tree_roots())
+        self.refresh_tree_roots()
+
+    def _command_path_expand(
+        self, root_node: FlowNode, paths: typing.List[str], with_suite: bool = True
+    ) -> typing.List[str]:
+        """Generate a list of **paths** starting at **root_node**."""
+        radical = []
+        if with_suite:
+            radical.append(self.suite)
+        root_node_full_path = root_node.full_path
+        if root_node_full_path:
+            radical.extend(root_node_full_path.split("/"))
+        return ["/".join(radical + p.split("/")).rstrip("/") for p in paths]
 
     def command_gateway(
         self, command: str, root_node: FlowNode, paths: typing.List[str]
@@ -643,6 +668,11 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def do_requeue(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """Actual implementation of the ``execute`` command."""
+        pass
+
+    @abc.abstractmethod
+    def do_cancel(self, root_node: FlowNode, paths: typing.List[str]) -> str:
+        """Actual implementation of the ``cancel`` command."""
         pass
 
     @property

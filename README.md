@@ -5,6 +5,11 @@ the necessary bits to build text-based console clients to interact with
 various workflow schedulers. For now, only ``SMS`` is supported: see the
 ``bin/tflowclient_cdp.py`` executable.
 
+The default display is a tree-view of the workload currently being managed by
+the workflow scheduler. An alternative display/"app" is available and can
+be trigger by adding `-a Cancel`` on the command-line: it allows to select
+several root nodes and to cancel (i.e. delete) them.
+
 ## Requirements & Dependencies
 
 The ``tflowclient`` package is only compatible with Python >= 3.7.

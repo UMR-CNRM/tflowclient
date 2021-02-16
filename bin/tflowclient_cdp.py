@@ -89,6 +89,14 @@ if __name__ == "__main__":
         help="The path to the CDP binary [default: %(default)s].",
     )
     parser.add_argument(
+        "-a",
+        "--app",
+        dest="app",
+        action="store",
+        default="TreeView",
+        help="The app that should be started [default: %(default)s].",
+    )
+    parser.add_argument(
         "-s",
         "--server",
         dest="server",
@@ -136,5 +144,5 @@ if __name__ == "__main__":
         cdp_path=args.cdp, host=args.server, user=args.user, password=password
     )
     with cdp:
-        app = TFlowApplication(cdp)
+        app = TFlowApplication(cdp, app_name=args.app)
         app.main()

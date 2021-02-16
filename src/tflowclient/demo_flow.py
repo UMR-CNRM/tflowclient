@@ -72,7 +72,7 @@ class DemoFlowInterface(FlowInterface):
 
     def _retrieve_tree_roots(self) -> RootFlowNode:
         """Create a fake list of root nodes for our workflow definition."""
-        rfn = RootFlowNode(self.suite, FlowStatus.ACTIVE)
+        rfn = RootFlowNode("", FlowStatus.ACTIVE)
         for i_x in range(2):
             rfn.add("{:04d}".format(i_x), FlowStatus.COMPLETE)
         rfn.add("{:04d}".format(2), FlowStatus.ABORTED)
@@ -162,6 +162,7 @@ class DemoFlowInterface(FlowInterface):
     do_resume = _any_command
     do_complete = _any_command
     do_requeue = _any_command
+    do_cancel = _any_command
 
     def _logs_gateway_create(self) -> LogsGateway:
         """Create a demo LogsGateway object."""
