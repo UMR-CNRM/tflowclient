@@ -663,6 +663,12 @@ class TFlowCommandView(TFlowAbstractCommandView):
             [("key", "ESC/BACKSPACE"), ": back to statuses"],
         )
 
+    def _do_command(self, command: str):
+        """Launch **command** and display the result."""
+        super()._do_command(command)
+        # Once the command has been executed, unselect everything
+        self.root_node.reset_flagged()
+
     def _commands_grid(self) -> urwid.GridFlow:
         """Generate the list of Urwid buttons associated with each of the commands."""
         buttons = []
