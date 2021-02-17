@@ -156,6 +156,23 @@ class TestConf(unittest.TestCase):
                 """
             ).terminal_properties
 
+    def test_ui_stuff(self):
+        self.assertEqual(TFlowClientConfig(conf_txt="").double_keystroke_delay, 0.25)
+        self.assertEqual(
+            TFlowClientConfig(
+                conf_txt="""[ui]
+                    double_keystroke_delay=0.5
+                    """
+            ).double_keystroke_delay,
+            0.5,
+        )
+        with self.assertRaises(ValueError):
+            assert TFlowClientConfig(
+                conf_txt="""[ui]
+                double_keystroke_delay=toto
+                """
+            ).double_keystroke_delay
+
     def test_cdp_stuff(self):
         """Test SMS/CDP related config."""
         self.assertEqual(TFlowClientConfig(conf_txt="").cdp_default_host, None)

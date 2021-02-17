@@ -319,17 +319,17 @@ class RootFlowNode(FlowNode):
         :param status:  The node's status
         """
         super().__init__(name, status)
-        self._c_time = time.time()
+        self._c_time = time.monotonic()
         self._focused = None
 
     @property
     def age(self) -> float:
         """The number of seconds from object's creation time."""
-        return time.time() - self._c_time
+        return time.monotonic() - self._c_time
 
     def touch(self):
         """Update the creation time."""
-        self._c_time = time.time()
+        self._c_time = time.monotonic()
 
     @property
     def focused(self) -> FlowNode:

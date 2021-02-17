@@ -227,6 +227,13 @@ class TFlowClientConfig(object):
         )
 
     @property
+    def double_keystroke_delay(self) -> float:
+        """
+        The delay between two keystrokes for them to be considered
+        "duplicated" (in seconds)."""
+        return float(self._conf.get("ui", "double_keystroke_delay", fallback="0.25"))
+
+    @property
     def cdp_default_path(self) -> typing.Union[str, None]:
         """The path to the CDP binary."""
         return self._conf.get("cdp", "path", fallback=None)

@@ -168,6 +168,7 @@ class FamilyTreeWidget(AnyEntryWidget):
         """
         super().__init__(node, flow_node, cust_label=cust_label)
         self.expanded = True
+        self._folding_keystroke_ts = 0
         self.reset_folding()
 
     def reset_folding(self):
@@ -175,12 +176,32 @@ class FamilyTreeWidget(AnyEntryWidget):
         self.expanded = self._flow_node.expanded
         self.update_expanded_icon()
 
+    def _recursive_expanded_reset(self, reset_root: AnyEntryWidget):
+        """Recursively update the folding starting from *reset_root*."""
+        my_node = reset_root.get_node()
+        for c_key in my_node.get_child_keys():
+            child_widget = my_node.get_child_widget(c_key)
+            if isinstance(child_widget, FamilyTreeWidget):
+                child_widget.expanded = self.expanded
+                child_widget.update_expanded_icon()
+                self._recursive_expanded_reset(child_widget)
+
     def keypress(self, size: typing.Tuple[int], key: str) -> typing.Union[str, None]:
         """allow subclasses to intercept keystrokes"""
-        if key == " ":
+        if key in " ":
             # Expand ...
-            self.expanded = not self.expanded
-            self.update_expanded_icon()
+            new_ts = time.monotonic()
+            if (
+                new_ts - self._folding_keystroke_ts
+                < tflowclient_conf.double_keystroke_delay
+            ):
+                # Double space was hit...
+                self._recursive_expanded_reset(self)
+                self._folding_keystroke_ts = 0
+            else:
+                self.expanded = not self.expanded
+                self.update_expanded_icon()
+                self._folding_keystroke_ts = new_ts
         else:
             return super().keypress(size, key)
 
@@ -1103,7 +1124,7 @@ class TFlowCancelMainView(TFlowAbstractView, Observer):
     """The application' main view (statuses tree)."""
 
     footer_text = [
-        [("key", "ENTER or SPACE"), ": Select"],
+        [("key", "ENTER/SPACE"), ": Select/Un-select"],
         [("key", "U"), ": Un-select all"],
         [("key", "R"), ": Refresh list"],
         [("key", "I"), ": Node Info"],
@@ -1269,6 +1290,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
 
     footer_text = [
         [("key", "SPACE"), ": Fold/Unfold"],
+        [("key", "2xSPACE"), ": Recurs. Fold/U."],
         [("key", "D"), ": Default Folding"],
         [("key", "F"), ": Fold 1st Level"],
         [("key", "R"), ": Refresh"],
@@ -1417,7 +1439,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
             # keep track of the current active root Node
             active = self.active_root
         # Order the root nodes given several criteria
-        current_time = time.time()
+        current_time = time.monotonic()
         recent_roots = []
         other_roots = []
         for root_node in self.flow.tree_roots:
@@ -1451,7 +1473,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
             with self.listbox.temporary_void_display():
                 self.flow.refresh(new_active_root)
                 self.active_root = new_active_root
-                self._roots_hits[self.active_root] = time.time()
+                self._roots_hits[self.active_root] = time.monotonic()
                 # Because the order of the items might change...
                 self.update_flow_roots()
             self.main_columns.focus_position = 1  # Jump to the tree
