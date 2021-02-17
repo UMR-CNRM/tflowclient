@@ -192,19 +192,21 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
                 status = self._STATUS_TRANSLATION[m_obj.group(2)]
                 if len(last_matches) == 0:
                     # This is the suite itself (just check that it's ok)
-                    from_suite = name == self.suite
+                    from_suite = name.strip("/") == self.suite
                     if not from_suite:
                         s_name = name.strip("/").split("/")
-                        if s_name[0] != self.suite:
+                        s_suite = self.suite.strip("/").split("/")
+                        if s_name[: len(s_suite)] != s_suite:
                             raise ValueError(
                                 "The output's suite name does not match: {:s} vs {:s}".format(
-                                    name, self.suite
+                                    "/".join(s_name[: len(s_suite)]), "/".join(s_suite)
                                 )
                             )
-                        if len(s_name) > 2:
+                        if len(s_name) > len(s_suite) + 1:
                             raise RuntimeError("Cannot work with such a status tree")
-                        root_nodes[s_name[1]] = RootFlowNode(s_name[1], status)
-                        current_node = root_nodes[s_name[1]]
+                        current_name = s_name[len(s_suite)]
+                        root_nodes[current_name] = RootFlowNode(current_name, status)
+                        current_node = root_nodes[current_name]
                 elif len(last_matches) == 1 and from_suite:
                     # This is a new root node
                     root_nodes[name] = RootFlowNode(name, status)
@@ -373,7 +375,7 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
     def _retrieve_tree_roots(self) -> RootFlowNode:
         """Retrieve the list of root nodes form the SMS server."""
         s_output, ok = self._run_cdp_command(
-            "status {:s}", self._DUMMY_SUITE_ROOT, [""]
+            "status /{:s}", self._DUMMY_SUITE_ROOT, [""]
         )
         if ok:
             parsed_result = self._parse_status_output(s_output)

@@ -433,9 +433,11 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         :param min_refresh_interval: Do not refresh the statuses if they are
                                      less then X seconds old.
         """
-        logger.info('Initialising "%s" for suite="%s".', str(self.__class__), suite)
         super().__init__()
-        self._suite = suite
+        self._suite = suite.strip("/")
+        logger.info(
+            'Initialising "%s" for suite="%s".', str(self.__class__), self.suite
+        )
         self._min_refresh_interval = min_refresh_interval
         self._credentials = None
         self._tree_roots = None
