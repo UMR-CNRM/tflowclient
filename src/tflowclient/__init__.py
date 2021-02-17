@@ -62,6 +62,6 @@ Here are a few pointers for a better understanding of the code:
 
 __all__ = ["cdp_flow", "demo_flow", "TFlowApplication"]
 
-__version__ = "0.3.3"
+__version__ = "0.4.0"
 
 from .ui import TFlowApplication
