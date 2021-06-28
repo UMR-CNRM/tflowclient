@@ -196,6 +196,8 @@ class FamilyTreeWidget(AnyEntryWidget):
                 < tflowclient_conf.double_keystroke_delay
             ):
                 # Double space was hit...
+                self.expanded = True
+                self.update_expanded_icon()
                 self._recursive_expanded_reset(self)
                 self._folding_keystroke_ts = 0
             else:
@@ -1290,7 +1292,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
 
     footer_text = [
         [("key", "SPACE"), ": Fold/Unfold"],
-        [("key", "2xSPACE"), ": Recurs. Fold/U."],
+        [("key", "2xSPACE"), ": Recurs. Unfold"],
         [("key", "D"), ": Default Folding"],
         [("key", "F"), ": Fold 1st Level"],
         [("key", "R"), ": Refresh"],
