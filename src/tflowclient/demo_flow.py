@@ -152,7 +152,10 @@ class DemoFlowInterface(FlowInterface):
         assert isinstance(root_node, FlowNode)
         time.sleep(0.5)
         return "\n".join(
-            ["This is a demo run: what did you expect ?", "Here is the list of paths:",]
+            [
+                "This is a demo run: what did you expect ?",
+                "Here is the list of paths:",
+            ]
             + paths
         )
 
@@ -182,6 +185,13 @@ class DemoFlowInterface(FlowInterface):
             ExtraFlowNodeInfo("limit", "runpp", "2", editable=True),
             ExtraFlowNodeInfo("meter", "ymdh", "2020010100", editable=True),
             ExtraFlowNodeInfo("trigger", "toto [complete]"),
+            ExtraFlowNodeInfo(
+                "repeat",
+                "YMD",
+                "2021010100",
+                description="type: date. info: from 20210616 to 20211231 step 1",
+                editable=True,
+            ),
         ]
 
     def _actual_save_node_info(

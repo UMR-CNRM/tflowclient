@@ -151,6 +151,10 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
     _TRIES_MAX_RE = re.compile(r"\s+SMSTRIES\s*=\s*(?P<max>\d+)\s*\[(?P<from>.*)]$")
     _METER_RE = re.compile(r"\s+METER (?P<n>.*) is (?P<v>.*) limits are \[(?P<l>.*)]$")
     _LABEL_RE = re.compile(r"\s+LABEL (?P<n>.*) '(?P<v>.*)'$")
+    _REPEAT_RE = re.compile(
+        r"\s*repeat (?P<rtype>integer|date|enumerated|string) "
+        + r"variable (?P<n>\w+)\s+(?P<info>.*)\s+currently\s+(?P<v>.*)$"
+    )
     _TRIGGERED_BY_RE = re.compile(r"Nodes that trigger this node$")
     _TRIGGER_RE = re.compile(r"\s+(?P<n>[^\s]+)\s+(?P<v>.+)$")
 
@@ -289,11 +293,24 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
                 continue
             # meters
             if _re_test(
-                self._METER_RE, "meter", "{n:s}", "{v:s}", "limits are [{l:s}]",
+                self._METER_RE,
+                "meter",
+                "{n:s}",
+                "{v:s}",
+                "limits are [{l:s}]",
             ):
                 continue
             # labels
             if _re_test(self._LABEL_RE, "label", "{n:s}", "{v:s}", editable=False):
+                continue
+            # repeats
+            if _re_test(
+                self._REPEAT_RE,
+                "repeat",
+                "{n:s}",
+                "{v:s}",
+                "type: {rtype:s}. info: {info:s}",
+            ):
                 continue
         return info
 
@@ -394,7 +411,9 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
                 ]
             ),
             self._DUMMY_SUITE_ROOT,
-            ["fake_path",],
+            [
+                "fake_path",
+            ],
         )
         if ok:
             full_parsed_result = self._parse_status_output(s_output)
@@ -448,7 +467,11 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
     def _logs_gateway_create(self) -> typing.Union[LogsGateway, None]:
         """Create a SMS LogsGateway object."""
         output, _ = self._run_cdp_command(
-            "info -v /", self._DUMMY_SUITE_ROOT, ["fake_path",]
+            "info -v /",
+            self._DUMMY_SUITE_ROOT,
+            [
+                "fake_path",
+            ],
         )
         re_log_path = re.compile(r"\s*SMSHOME\s*=\s*([^\s]+)")
         re_log_host = re.compile(r"\s*SMSLOGHOST\s*=\s*([-.\w]+)")
@@ -477,7 +500,11 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
     def node_info(self, node: FlowNode) -> typing.List[ExtraFlowNodeInfo]:
         """Fetch the node's information."""
         i_output, ok = self._run_cdp_command(
-            "info -v /{:s}", self._DUMMY_SUITE_ROOT, [node.full_path,],
+            "info -v /{:s}",
+            self._DUMMY_SUITE_ROOT,
+            [
+                node.full_path,
+            ],
         )
         if ok:
             info = self._parse_info_outputs(i_output)
@@ -516,6 +543,12 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
             elif change.kind == "meter":
                 c_stack.append(
                     "alter -m {:s}:{:s} {!s}".format(
+                        node_sms_path, change.name, change.value
+                    )
+                )
+            elif change.kind == "repeat":
+                c_stack.append(
+                    "alter -R {:s}:{:s} {!s}".format(
                         node_sms_path, change.name, change.value
                     )
                 )

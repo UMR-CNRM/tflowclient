@@ -133,7 +133,10 @@ class TestFlow(unittest.TestCase):
         self.assertEqual(rfn, rfn_bis)
         self.assertListEqual(
             rfn_bis.flagged_paths(),
-            ["20200114/12/production/obsextract_surf", "20200114/12/assim/obsextract",],
+            [
+                "20200114/12/production/obsextract_surf",
+                "20200114/12/assim/obsextract",
+            ],
         )
         self.assertSetEqual(
             rfn_bis_obs.slurp,

@@ -1538,7 +1538,9 @@ class TFlowMainView(TFlowAbstractView, Observer):
         # Start an age updater if needed
         if self._active_root_timer is None:
             self._active_root_timer = self.app.loop.set_alarm_in(
-                self.timer_interval, self.age_auto_update, user_data=root,
+                self.timer_interval,
+                self.age_auto_update,
+                user_data=root,
             )
             logger.debug(
                 "Timer for age update is: %s (for %s)", self._active_root_timer, root

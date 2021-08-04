@@ -104,6 +104,7 @@ Flags set: has user messages
 Current try number: 1
   METER work is 3 limits are [0 - 6]
   LABEL jobid 'beaufixcn:85583522--mtool:407991'
+repeat date variable YMD from 20210616 to 20211231 step 1 currently 20210616
 Nodes triggered by this node
     /leffe/B9GN/20190228/00/production/fc/post_bdap
 Nodes that trigger this node
@@ -201,9 +202,20 @@ class TestCdpFlow(unittest.TestCase):
                 ),
                 ExtraFlowNodeInfo("flowspecific", "CurrentTryNumber", "1"),
                 ExtraFlowNodeInfo(
-                    "meter", "work", "3", "limits are [0 - 6]", editable=True,
+                    "meter",
+                    "work",
+                    "3",
+                    "limits are [0 - 6]",
+                    editable=True,
                 ),
                 ExtraFlowNodeInfo("label", "jobid", "beaufixcn:85583522--mtool:407991"),
+                ExtraFlowNodeInfo(
+                    "repeat",
+                    "YMD",
+                    "20210616",
+                    "type: date. info: from 20210616 to 20211231 step 1",
+                    editable=True,
+                ),
                 ExtraFlowNodeInfo(
                     "trigger",
                     "/leffe/B9GN/20190228/00/production/fc/topbd",
