@@ -88,7 +88,12 @@ class TestLogsGateway(unittest.TestCase):
         """Test the SMS log gateway."""
         # Just test the ping method...
         sms_g = get_logs_gateway(
-            kind="sms_log_svr", host="not_existing.for.sure.fr", port=12345, path="/tmp"
+            kind="sms_log_svr",
+            host="not_existing.for.sure.fr",
+            port=12345,
+            paths=[
+                "/tmp",
+            ],
         )
         self.assertFalse(sms_g.ping(connect_timeout=0.2))
 

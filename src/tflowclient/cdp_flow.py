@@ -473,25 +473,29 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
                 "fake_path",
             ],
         )
-        re_log_path = re.compile(r"\s*SMSHOME\s*=\s*([^\s]+)")
+        re_log_path_h = re.compile(r"\s*SMSHOME\s*=\s*([^\s]+)")
+        re_log_path_o = re.compile(r"\s*SMSOUT\s*=\s*([^\s]+)")
         re_log_host = re.compile(r"\s*SMSLOGHOST\s*=\s*([-.\w]+)")
         re_log_port = re.compile(r"\s*SMSLOGPORT\s*=\s*(\d+)")
-        log_path = None
+        log_paths = list()
         log_host = None
         log_port = None
         for line in output.split("\n"):
-            m_path = re_log_path.match(line)
+            m_path = re_log_path_h.match(line)
             if m_path:
-                log_path = "/".join([m_path.group(1), self.suite])
+                log_paths.append("/".join([m_path.group(1), self.suite]))
+            m_path = re_log_path_o.match(line)
+            if m_path:
+                log_paths.append("/".join([m_path.group(1), self.suite]))
             m_host = re_log_host.match(line)
             if m_host:
                 log_host = m_host.group(1)
             m_port = re_log_port.match(line)
             if m_port:
                 log_port = int(m_port.group(1))
-        if log_host is not None and log_port is not None:
+        if log_host is not None and log_port is not None and len(log_paths) > 0:
             l_gateway = get_logs_gateway(
-                kind="sms_log_svr", path=log_path, host=log_host, port=log_port
+                kind="sms_log_svr", paths=log_paths, host=log_host, port=log_port
             )
             if l_gateway.ping():
                 return l_gateway

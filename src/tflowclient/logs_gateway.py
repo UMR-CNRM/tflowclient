@@ -205,9 +205,9 @@ class SmsLogSvrGateway(StringBasedLogsGateway):
 
     @staticmethod
     def _valid_kwargs(kwargs):
-        if set(kwargs.keys()) != {"host", "port", "path"}:
-            raise ValueError("path, host and port attributes are required.")
-        kwargs["path"] = kwargs["path"].rstrip("/")
+        if set(kwargs.keys()) != {"host", "port", "paths"}:
+            raise ValueError("paths, host and port attributes are required.")
+        kwargs["paths"] = [p.rstrip("/") for p in kwargs["paths"]]
 
     def _query_server(
         self, command: str, connect_timeout: int = 5, send_timeout: int = 15
@@ -244,31 +244,32 @@ class SmsLogSvrGateway(StringBasedLogsGateway):
         """Try a dummy request just to check if the log_server is fine."""
         try:
             self._query_server(
-                "list {:s}/fakexp/task.0".format(self.path),
+                "list {:s}/fakexp/task.0".format(self.paths[0]),
                 connect_timeout=connect_timeout,
             )
         except LogsGatewayRuntimeError:
             return False
         return True
 
-    def _retrieve_files_list(self, path: str) -> typing.Set[str]:
+    def _retrieve_files_list(
+        self, path: str
+    ) -> typing.Set[typing.Tuple[str, datetime]]:
         """Get the log files list (from server)."""
-        f_list = self._query_server(
-            "list {:s}/{:s}.0".format(self.path, path.strip("/"))
-        )
-        if f_list:
-            f_list = [
-                line.strip(" ").split(" ")
-                for line in f_list.split("\n")
-                if line.strip(" ")
-            ]
-            return {
-                (entry[-1], datetime.utcfromtimestamp(int(entry[5])))
-                for entry in f_list
-                if entry
-            }
-        else:
-            return set()
+        paths = set()
+        for l_path in self.paths:
+            f_list = self._query_server(
+                "list {:s}/{:s}.0".format(l_path, path.strip("/"))
+            )
+            if f_list:
+                f_list = [
+                    line.strip(" ").split(" ")
+                    for line in f_list.split("\n")
+                    if line.strip(" ")
+                ]
+                for entry in f_list:
+                    if entry:
+                        paths.add((entry[-1], datetime.utcfromtimestamp(int(entry[5]))))
+        return paths
 
     def get_as_str(self, path: str, log_file: str) -> str:
         """Return a **log_file** content as a string."""
