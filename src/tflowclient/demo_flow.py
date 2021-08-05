@@ -39,7 +39,7 @@ server.
 A fake workflow is generated. This class is solely used fo demonstration
 purposes in the ``bin/tflowclient_demo.py`` executable.
 """
-
+import collections
 import logging
 import time
 import typing
@@ -54,6 +54,10 @@ logger = logging.getLogger(__name__)
 
 class DemoFlowInterface(FlowInterface):
     """A demonstration/dependency-less :class:`FlowInterface`."""
+
+    def __init__(self, suite: str, min_refresh_interval: int = 5):
+        self._n_refreshed = collections.defaultdict(int)
+        super().__init__(suite, min_refresh_interval)
 
     @property
     def credentials_summary(self) -> str:
@@ -81,10 +85,10 @@ class DemoFlowInterface(FlowInterface):
         logger.debug("Got tree roots statuses:\n%s", rfn)
         return rfn
 
-    @staticmethod
-    def _generic_flow_node(path, top_status=None, overall_status=None):
+    def _generic_flow_node(self, path, top_status=None, overall_status=None):
         """Create fake family/tasks tree for our workflow definition."""
         time.sleep(1)
+        self._n_refreshed[path] += 1
         rfn = RootFlowNode(path, top_status or overall_status or FlowStatus.ABORTED)
         for i_f in range(15):
             f_status = FlowStatus.QUEUED
@@ -93,7 +97,11 @@ class DemoFlowInterface(FlowInterface):
                 f_status = FlowStatus.COMPLETE
                 ff_status = FlowStatus.COMPLETE
             if i_f == 4:
-                f_status = FlowStatus.ABORTED
+                f_status = (
+                    FlowStatus.ACTIVE
+                    if self._n_refreshed[path] % 3
+                    else FlowStatus.ABORTED
+                )
                 ff_status = None
             family = rfn.add(
                 "{:s}_family{:02d}".format(path, i_f), overall_status or f_status
@@ -121,7 +129,13 @@ class DemoFlowInterface(FlowInterface):
                 )
             family.add(
                 "task{:02d}".format(5),
-                overall_status or ff_status or FlowStatus.ABORTED,
+                overall_status
+                or ff_status
+                or (
+                    FlowStatus.ACTIVE
+                    if self._n_refreshed[path] % 3
+                    else FlowStatus.ABORTED
+                ),
             )
             family.add(
                 "task{:02d}".format(6),

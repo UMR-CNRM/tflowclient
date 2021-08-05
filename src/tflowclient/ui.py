@@ -121,9 +121,15 @@ class AnyEntryWidget(urwid.TreeWidget, Observer):
         """All statuses nodes are selectable."""
         return True
 
+    def user_set_expanded(self, expanded):
+        """Manually change the expanded attribute."""
+        pass
+
     def keypress(self, size: typing.Tuple[int], key: str) -> typing.Union[str, None]:
-        """allow subclasses to intercept keystrokes"""
-        key = super().keypress(size, key)
+        """allow subclasses to intercept keystrokes."""
+        # Suppress the standard +/- behaviour
+        if key not in ("+", "-", "right"):
+            key = super().keypress(size, key)
         if key == "enter":
             self._flow_node.flagged = not self._flow_node.flagged
         else:
@@ -167,13 +173,17 @@ class FamilyTreeWidget(AnyEntryWidget):
         :param cust_label: A custom label used when displaying the node
         """
         super().__init__(node, flow_node, cust_label=cust_label)
-        self.expanded = True
+
         self._folding_keystroke_ts = 0
-        self.reset_folding()
+        self.expanded = self._flow_node.user_expanded
+        if self.expanded is None:
+            self.expanded = self._flow_node.expanded
+        self.update_expanded_icon()
 
     def reset_folding(self):
-        """Reset the tree folding."""
+        """Reset the default tree folding."""
         self.expanded = self._flow_node.expanded
+        del self._flow_node.user_expanded
         self.update_expanded_icon()
 
     def _recursive_expanded_reset(self, reset_root: AnyEntryWidget):
@@ -182,9 +192,14 @@ class FamilyTreeWidget(AnyEntryWidget):
         for c_key in my_node.get_child_keys():
             child_widget = my_node.get_child_widget(c_key)
             if isinstance(child_widget, FamilyTreeWidget):
-                child_widget.expanded = self.expanded
-                child_widget.update_expanded_icon()
+                child_widget.user_set_expanded(self.expanded)
                 self._recursive_expanded_reset(child_widget)
+
+    def user_set_expanded(self, expanded):
+        """Manually change the expanded attribute."""
+        self.expanded = expanded
+        self._flow_node.user_expanded = expanded
+        self.update_expanded_icon()
 
     def keypress(self, size: typing.Tuple[int], key: str) -> typing.Union[str, None]:
         """allow subclasses to intercept keystrokes"""
@@ -196,16 +211,16 @@ class FamilyTreeWidget(AnyEntryWidget):
                 < tflowclient_conf.double_keystroke_delay
             ):
                 # Double space was hit...
-                self.expanded = True
-                self.update_expanded_icon()
+                self.user_set_expanded(True)
                 self._recursive_expanded_reset(self)
                 self._folding_keystroke_ts = 0
             else:
-                self.expanded = not self.expanded
-                self.update_expanded_icon()
+                self.user_set_expanded(not self.expanded)
                 self._folding_keystroke_ts = new_ts
+            key = None
         else:
-            return super().keypress(size, key)
+            key = super().keypress(size, key)
+        return key
 
 
 class TaskTreeWidget(AnyEntryWidget):
@@ -718,7 +733,7 @@ class TFlowCommandView(TFlowAbstractCommandView):
         self._do_command(user_data)
 
     def _do_post_command_update(self):
-        self.flow.refresh(self.root_node.name)
+        self.flow.refresh(self.root_node.name, force=True)
 
     def _selected_keypress_hook(self, key: str) -> typing.Union[str, None]:
         for av_c in self.available_commands:
@@ -760,7 +775,7 @@ class TFlowCancelCommandView(TFlowAbstractCommandView):
         )
 
     def _do_post_command_update(self):
-        self.flow.refresh_tree_roots()
+        self.flow.refresh_tree_roots(force=True)
 
     def _selected_keypress_hook(self, key: str) -> typing.Union[str, None]:
         if key in ("c", "C"):
@@ -1509,6 +1524,9 @@ class TFlowMainView(TFlowAbstractView, Observer):
         # Find out what should be the selected entry. Start with the last selected...
         focused_node = root_f_node.focused
         if focused_node is None:
+            # Otherwise, start on the first leaf of importance
+            focused_node = root_f_node.first_blink_leaf()
+        if focused_node is None:
             # Otherwise, start on the first expanded leaf
             focused_node = root_f_node.first_expanded_leaf()
         if focused_node is None:
@@ -1571,8 +1589,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
         c_keys = urwid_root.get_child_keys()
         for c_key in c_keys:
             child_widget = urwid_root.get_child_widget(c_key)
-            child_widget.expanded = False
-            child_widget.update_expanded_icon()
+            child_widget.user_set_expanded(False)
         # Select the closest level 1 node (to be consistent with the new folding)
         _, focused_node = self.listbox.actual_walker.get_focus()
         if focused_node.get_depth() > 1:

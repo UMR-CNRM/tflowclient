@@ -101,10 +101,13 @@ class FlowNode(observer.Subject):
     """
 
     EXPANDED_STATUSES = {
-        FlowStatus.UNKNOWN,
         FlowStatus.ACTIVE,
         FlowStatus.ABORTED,
         FlowStatus.SUBMITTED,
+    }
+
+    BLINK_STATUSES = {
+        FlowStatus.ABORTED,
     }
 
     def __init__(self, name: str, status: FlowStatus, parent: FlowNode = None):
@@ -119,6 +122,7 @@ class FlowNode(observer.Subject):
         self._status = status
         self._parent = parent
         self._expanded = parent is None  # The first entry is always expanded
+        self._user_expanded = None
         self._flagged = False
         self._children = collections.OrderedDict()
 
@@ -143,6 +147,24 @@ class FlowNode(observer.Subject):
         return self._expanded
 
     @property
+    def user_expanded(self):
+        """Tells whether the node has been expanded by the user."""
+        return None if self._user_expanded is None else self._user_expanded[0]
+
+    @user_expanded.setter
+    def user_expanded(self, value):
+        """Set the `user_expanded` property."""
+        value = bool(value)
+        if self._user_expanded != (value, self.status):
+            self._user_expanded = (value, self.status)
+            self._notify({"user_expanded": self.user_expanded})
+
+    @user_expanded.deleter
+    def user_expanded(self):
+        """Reset the `user_expanded` property."""
+        self._user_expanded = None
+
+    @property
     def flagged(self):
         """Returns `True` if the present node is selected."""
         return self._flagged
@@ -150,8 +172,15 @@ class FlowNode(observer.Subject):
     @flagged.setter
     def flagged(self, value):
         """Set the ``flagged`` property."""
-        self._flagged = bool(value)
-        self._notify({"flagged": self.flagged})
+        value = bool(value)
+        if self._flagged != value:
+            self._flagged = bool(value)
+            self._notify({"flagged": self.flagged})
+
+    @property
+    def blink(self):
+        """Check if this node should be highlighted."""
+        return self.status in self.BLINK_STATUSES and len(self) == 0
 
     def _compute_path(self, with_root=True):
         s_path = []
@@ -172,21 +201,21 @@ class FlowNode(observer.Subject):
         """Return the path to the requested node (relative to the root node)."""
         return self._compute_path(with_root=False)
 
-    def set_expanded(self):
-        """Set the `expanded` on this node and all its parents."""
+    def set_expanded_recursively(self):
+        """internal use: set the `expanded` on this node and all its parents."""
         self._expanded = True
         if self.parent is not None:
-            self.parent.set_expanded()
+            self.parent.set_expanded_recursively()
 
     def add(self, name: str, status: FlowStatus) -> FlowNode:
         """Create a new child node.
 
-        :param name:  THe child node name.
+        :param name:  The child node name.
         :param status: The child node status.
         """
         self._children[name] = FlowNode(name, status, parent=self)
         if status in self.EXPANDED_STATUSES:
-            self._children[name].set_expanded()
+            self._children[name].set_expanded_recursively()
         return self._children[name]
 
     def indented_str(self, level: int):
@@ -212,7 +241,7 @@ class FlowNode(observer.Subject):
                 identical = identical and s_child == o_child
         return identical
 
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> FlowNode:
         return self._children[item]
 
     def __contains__(self, item):
@@ -245,6 +274,17 @@ class FlowNode(observer.Subject):
         else:
             return self
 
+    def first_blink_leaf(self):
+        """Return the first leaf of importance."""
+        if self.blink:
+            return self
+        else:
+            for c_node in self:
+                c_node_blink = c_node.first_blink_leaf()
+                if c_node_blink is not None:
+                    return c_node_blink
+        return None
+
     def first_expanded_leaf(self):
         """Return the object representing the first expanded leaf in the current tree."""
         if self.expanded:
@@ -257,14 +297,15 @@ class FlowNode(observer.Subject):
                         return e_leaf
         return None
 
-    def iter_flagged_paths(self, path_base: str) -> typing.List[str]:
+    def _iter_property_paths(self, what: str, path_base: str) -> typing.Dict:
         """Internal method: iterate through the nodes tree."""
-        flagged = list()
+        flagged = dict()
         path_base = (path_base + "/" if path_base else "") + self.name
-        if self.flagged:
-            flagged.append(path_base)
+        value = getattr(self, what)
+        if value:
+            flagged[path_base] = value
         for c_node in self:
-            flagged.extend(c_node.iter_flagged_paths(path_base))
+            flagged.update(c_node._iter_property_paths(what, path_base))
         return flagged
 
     def flagged_paths(self) -> typing.List[str]:
@@ -272,12 +313,33 @@ class FlowNode(observer.Subject):
         Return a list of paths to objects that are currently ``flagged`` below
         the current node.
         """
-        flagged = []
+        flagged = dict()
         if self.flagged:
-            flagged.append("")
+            flagged[""] = True
         for c_node in self:
-            flagged.extend(c_node.iter_flagged_paths(""))
-        return flagged
+            flagged.update(c_node._iter_property_paths("flagged", ""))
+        return list(flagged.keys())
+
+    def user_expanded_paths(self) -> typing.Dict[str, typing.Tuple[bool, FlowStatus]]:
+        """
+        Return a list of paths to objects that are currently ``user_expanded`` below
+        the current node.
+        """
+        u_expanded = dict()
+        if self._user_expanded is not None:
+            u_expanded[""] = self._user_expanded
+        for c_node in self:
+            u_expanded.update(c_node._iter_property_paths("_user_expanded", ""))
+        return u_expanded
+
+    def blink_paths(self) -> typing.Set[str]:
+        """Return the list of path that may trigger a focus change on refresh."""
+        blink = dict()
+        if self.blink:
+            blink[""] = True
+        for c_node in self:
+            blink.update(c_node._iter_property_paths("blink", ""))
+        return set(blink.keys())
 
     def flag_status(self, status: FlowStatus, leaf: bool = True):
         """Recursively flag all the nodes that correspond to a given **status**.
@@ -297,17 +359,32 @@ class FlowNode(observer.Subject):
         for c_node in self:
             c_node.reset_flagged()
 
-    def ingest_flagged(self, flaggedpaths: typing.List[str]):
+    def ingest_flagged(self, flagged_paths: typing.List[str]):
         """Import a list of flagged paths."""
-        for f in flaggedpaths:
-            if f.startswith(self.name):
-                try:
-                    found = self.resolve_path(f[len(self.name) :].lstrip("/"))
-                except KeyError:
-                    pass
-                else:
-                    found.flagged = True
-                    found.set_expanded()
+        for f in flagged_paths:
+            try:
+                found = self.resolve_path(f.lstrip("/"))
+            except KeyError:
+                pass
+            else:
+                found.flagged = True
+
+    def ingest_user_expanded(
+        self, user_expanded_paths: typing.Dict[str, typing.Tuple[bool, FlowStatus]]
+    ):
+        """Import a list of user_expanded paths."""
+        for f, value in user_expanded_paths.items():
+            try:
+                found = self.resolve_path(f.lstrip("/"))
+            except KeyError:
+                pass
+            else:
+                if (
+                    value[0]
+                    or found.status == value[1]
+                    or found.status not in self.EXPANDED_STATUSES
+                ):
+                    found.user_expanded = value[0]
 
 
 class RootFlowNode(FlowNode):
@@ -341,6 +418,18 @@ class RootFlowNode(FlowNode):
         """Set the ``_focused`` property."""
         assert isinstance(value, FlowNode)
         self._focused = value
+
+    def ingest_focused(self, focused_path: str, blink_paths: typing.Set[str]):
+        """Import a path to the focused element."""
+        if self.blink_paths() <= blink_paths:
+            # If the situation becomes worth, do nothing... otherwise
+            # try to focus the previously focused node
+            try:
+                found = self.resolve_path(focused_path.lstrip("/"))
+            except KeyError:
+                pass
+            else:
+                self.focused = found
 
 
 class ExtraFlowNodeInfo(object):
@@ -594,7 +683,15 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
             self._full_statuses[path].touch()
         else:
             if path in self._full_statuses:
+                # Try to preserve focus, flagged stuff and expanded info
+                value.ingest_focused(
+                    self._full_statuses[path].focused.path,
+                    self._full_statuses[path].blink_paths(),
+                )
                 value.ingest_flagged(self._full_statuses[path].flagged_paths())
+                value.ingest_user_expanded(
+                    self._full_statuses[path].user_expanded_paths()
+                )
             self._full_statuses[path] = value
             self._notify_status(path)
 
@@ -603,20 +700,27 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         """Retrieve the full statuses tree for the **path** root node."""
         return RootFlowNode("fake", FlowStatus.ABORTED)
 
-    def refresh_tree_roots(self):
-        """Refresh the list of root nodes."""
-        if self.tree_roots.age > self.min_refresh_interval:
+    def refresh_tree_roots(self, force: bool = False):
+        """Refresh the list of root nodes.
+
+        :param force: Forced refresh (even if the cache is ok)
+        """
+        if force or self.tree_roots.age > self.min_refresh_interval:
             self._set_tree_roots(self._retrieve_tree_roots())
 
-    def refresh(self, path: str):
+    def refresh(self, path: str, force: bool = False):
         """
         Refresh both the list of root nodes and the status for the **path**
         root node.
+
+        :param path: The path to the root node that should be refreshed
+        :param force: Forced refresh (even if the cache is ok)
         """
         # Update the node's status
         logger.info('Status refresh requested by the user (for "%s").', path)
         if (
-            path not in self._full_statuses
+            force
+            or path not in self._full_statuses
             or self._full_statuses[path].age >= self.min_refresh_interval
         ):
             self._set_full_status(path, self._retrieve_status(path))

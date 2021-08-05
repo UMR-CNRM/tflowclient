@@ -69,21 +69,35 @@ class TestFlow(unittest.TestCase):
     """Unit-test class for FlowNode."""
 
     @staticmethod
-    def _build_demo_flow():
+    def _build_demo_flow(failed=True, minor=False, fulltree=True) -> RootFlowNode:
         """Build a demonstration FlowNode object hierarchy."""
-        r_fn = RootFlowNode("A157", FlowStatus.ABORTED)
-        f_d14 = r_fn.add("20200114", FlowStatus.ABORTED)
+        r_fn = RootFlowNode(
+            "A157", FlowStatus.ABORTED if (failed and fulltree) else FlowStatus.ACTIVE
+        )
+        f_d14 = r_fn.add(
+            "20200114",
+            FlowStatus.ABORTED if (failed and fulltree) else FlowStatus.ACTIVE,
+        )
         f_00 = f_d14.add("00", FlowStatus.COMPLETE)
         for cutoff in ("production", "assim"):
             f_cutoff = f_00.add(cutoff, FlowStatus.COMPLETE)
             f_cutoff.add("obsextract", FlowStatus.COMPLETE)
-        f_12 = f_d14.add("12", FlowStatus.ABORTED)
+        f_12 = f_d14.add(
+            "12", FlowStatus.ABORTED if (failed and fulltree) else FlowStatus.ACTIVE
+        )
         f_prod = f_12.add("production", FlowStatus.ACTIVE)
         f_prod.add("obsextract", FlowStatus.QUEUED)
         f_prod.add("obsextract_surf", FlowStatus.ACTIVE)
-        f_assim = f_12.add("assim", FlowStatus.ABORTED)
-        f_assim.add("obsextract", FlowStatus.ABORTED)
-        f_assim.add("obsextract_surf", FlowStatus.SUBMITTED)
+        if fulltree:
+            f_assim = f_12.add(
+                "assim", FlowStatus.ABORTED if failed else FlowStatus.ACTIVE
+            )
+            f_assim.add(
+                "obsextract", FlowStatus.ABORTED if failed else FlowStatus.ACTIVE
+            )
+            f_assim.add(
+                "obsextract_surf", FlowStatus.ACTIVE if minor else FlowStatus.SUBMITTED
+            )
         return r_fn
 
     def test_root_flow(self):
@@ -159,6 +173,96 @@ class TestFlow(unittest.TestCase):
             rfn_bis_obs.slurp,
             {id(rfn_bis["20200114"]["12"]["production"]["obsextract_surf"])},
         )
+
+    @staticmethod
+    def _rfn_update(rfn: RootFlowNode, new_rfn: RootFlowNode) -> RootFlowNode:
+        if rfn.focused is not None:
+            new_rfn.ingest_focused(
+                rfn.focused.path,
+                rfn.blink_paths(),
+            )
+        new_rfn.ingest_flagged(rfn.flagged_paths())
+        new_rfn.ingest_user_expanded(rfn.user_expanded_paths())
+        return new_rfn
+
+    def test_root_flow_update(self):
+        rfn = self._build_demo_flow()
+        rfn.focused = rfn["20200114"]["12"]["production"]["obsextract_surf"]
+        rfn["20200114"]["12"]["production"]["obsextract_surf"].flagged = True
+        rfn["20200114"].user_expanded = True
+        rfn["20200114"]["12"].user_expanded = True
+        rfn["20200114"]["12"]["production"].user_expanded = True
+        rfn["20200114"]["12"]["assim"].user_expanded = False
+
+        rfn = self._rfn_update(rfn, self._build_demo_flow())
+        # No change -> focus sticks
+        self.assertIs(
+            rfn.focused, rfn["20200114"]["12"]["production"]["obsextract_surf"]
+        )
+        self.assertTrue(rfn["20200114"]["12"]["production"]["obsextract_surf"].flagged)
+        rfn.flagged = True
+        self.assertTrue(rfn["20200114"].user_expanded)
+        self.assertTrue(rfn["20200114"]["12"].user_expanded)
+        self.assertTrue(rfn["20200114"]["12"]["production"].user_expanded)
+        # No change, consequently it remains folded
+        self.assertFalse(rfn["20200114"]["12"]["assim"].user_expanded)
+
+        # Minor change
+        rfn = self._rfn_update(rfn, self._build_demo_flow(minor=True))
+        self.assertTrue(rfn["20200114"]["12"]["production"]["obsextract_surf"].flagged)
+        self.assertTrue(rfn.flagged)
+        # This is a minor/neutral change, focus sticks
+        self.assertIs(
+            rfn.focused, rfn["20200114"]["12"]["production"]["obsextract_surf"]
+        )
+        # No changes in expansion
+        self.assertDictEqual(
+            rfn["20200114"].user_expanded_paths(),
+            {
+                "": (True, FlowStatus.ABORTED),
+                "12": (True, FlowStatus.ABORTED),
+                "12/production": (True, FlowStatus.ACTIVE),
+                "12/assim": (False, FlowStatus.ABORTED),
+            },
+        )
+        self.assertSetEqual(
+            rfn["20200114"]["12"]["assim"]["obsextract"].blink_paths(), {""}
+        )
+
+        # Imporvement
+        rfn = self._rfn_update(rfn, self._build_demo_flow(failed=False))
+        self.assertTrue(rfn["20200114"]["12"]["production"]["obsextract_surf"].flagged)
+        # This is an improvement, focus sticks
+        self.assertIs(
+            rfn.focused, rfn["20200114"]["12"]["production"]["obsextract_surf"]
+        )
+        # User expanded families remain...
+        self.assertTrue(rfn["20200114"].user_expanded)
+        self.assertTrue(rfn["20200114"]["12"].user_expanded)
+        self.assertTrue(rfn["20200114"]["12"]["production"].user_expanded)
+        del rfn["20200114"]["12"]["production"].user_expanded
+        self.assertIsNone(rfn["20200114"]["12"]["production"].user_expanded)
+        # However, user_expanded is reseted for changed items
+        self.assertIsNone(rfn["20200114"]["12"]["assim"].user_expanded)
+        rfn["20200114"]["12"]["assim"].user_expanded = False
+
+        # Deterioration
+        rfn = self._rfn_update(rfn, self._build_demo_flow())
+        self.assertTrue(rfn["20200114"]["12"]["production"]["obsextract_surf"].flagged)
+        # Focus and user_expanded are reseted !
+        self.assertIsNone(rfn.focused)
+        self.assertIsNone(rfn["20200114"]["12"]["assim"].user_expanded)
+        rfn["20200114"]["12"]["assim"].user_expanded = True
+        rfn["20200114"]["12"]["assim"].flagged = True
+        rfn.focused = rfn.first_blink_leaf()
+        self.assertIs(rfn.focused, rfn["20200114"]["12"]["assim"]["obsextract"])
+
+        # Remove aborted elemnts from the Tree
+        rfn = self._rfn_update(rfn, self._build_demo_flow(fulltree=False))
+        self.assertNotIn("assim", rfn["20200114"]["12"])
+        self.assertTrue(rfn["20200114"]["12"]["production"]["obsextract_surf"].flagged)
+        self.assertTrue(rfn["20200114"].user_expanded)
+        self.assertTrue(rfn["20200114"]["12"].user_expanded)
 
 
 if __name__ == "__main__":
