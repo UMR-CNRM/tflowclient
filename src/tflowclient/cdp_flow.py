@@ -477,8 +477,10 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
         re_log_path_o = re.compile(r"\s*SMSOUT\s*=\s*([^\s]+)")
         re_log_host = re.compile(r"\s*SMSLOGHOST\s*=\s*([-.\w]+)")
         re_log_port = re.compile(r"\s*SMSLOGPORT\s*=\s*(\d+)")
+        re_my_host = re.compile(r"\s*SMSNODE\s*=\s*([-.\w]+)")
         log_paths = list()
         log_host = None
+        my_host = None
         log_port = None
         for line in output.split("\n"):
             m_path = re_log_path_h.match(line)
@@ -493,6 +495,12 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
             m_port = re_log_port.match(line)
             if m_port:
                 log_port = int(m_port.group(1))
+            m_my_host = re_my_host.match(line)
+            if m_my_host:
+                my_host = m_my_host.group(1)
+        if log_host is None:
+            # If SMSLOGHOST is not defined, revert to SMSNODE
+            log_host = my_host
         if log_host is not None and log_port is not None and len(log_paths) > 0:
             l_gateway = get_logs_gateway(
                 kind="sms_log_svr", paths=log_paths, host=log_host, port=log_port

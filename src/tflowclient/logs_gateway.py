@@ -278,6 +278,7 @@ class SmsLogSvrGateway(StringBasedLogsGateway):
 
 def get_logs_gateway(kind: str, **kwargs) -> LogsGateway:
     """A simple factory method for LogsGateway classes."""
+    logger.debug("Ceating a log gateway. kind=%s. kwargs=%s", kind, kwargs)
     if kind == "demo":
         return DemoLogsGateway(**kwargs)
     elif kind == "sms_log_svr":
