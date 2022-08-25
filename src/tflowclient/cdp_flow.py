@@ -271,7 +271,7 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
                 "limit",
                 "{name:s}",
                 "{max:s}",
-                "currently running: {run:s}",
+                "currently running: {run:s} - Use the 'reset' special value to reset things",
             ):
                 continue
             # tries
@@ -546,11 +546,12 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
                 else:
                     c_stack.append("alter -r -v {:s} SMSTRIES".format(node_sms_path))
             elif change.kind == "limit":
-                c_stack.append(
-                    "alter -M {:s}:{:s} {!s}".format(
-                        node_sms_path, change.name, change.value
+                if not change.value.endswith("reset"):
+                    c_stack.append(
+                        "alter -M {:s}:{:s} {!s}".format(
+                            node_sms_path, change.name, change.value
+                        )
                     )
-                )
                 c_stack.append("reset {:s}:{:s}".format(node_sms_path, change.name))
             elif change.kind == "meter":
                 c_stack.append(

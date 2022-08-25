@@ -194,11 +194,15 @@ class TestCdpFlow(unittest.TestCase):
                     "limit",
                     "version septembre 2018 - mo07_mocage@camsfcst-main.03 - TEST",
                     "0",
-                    "currently running: 0",
+                    "currently running: 0 - Use the 'reset' special value to reset things",
                     editable=True,
                 ),
                 ExtraFlowNodeInfo(
-                    "limit", "running", "3", "currently running: 1", editable=True
+                    "limit",
+                    "running",
+                    "3",
+                    "currently running: 1 - Use the 'reset' special value to reset things",
+                    editable=True,
                 ),
                 ExtraFlowNodeInfo("flowspecific", "CurrentTryNumber", "1"),
                 ExtraFlowNodeInfo(
