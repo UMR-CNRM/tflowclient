@@ -172,6 +172,19 @@ class TestConf(unittest.TestCase):
                 double_keystroke_delay=toto
                 """
             ).double_keystroke_delay
+        self.assertEqual(
+            TFlowClientConfig(conf_txt="").logviewer_command,
+            ["vim", "-R", "-N", "{filename:s}"],
+        )
+        self.assertEqual(
+            TFlowClientConfig(
+                conf_txt="""[ui]
+                            logviewer_command=shell   lexer \
+                                was here
+                            """
+            ).logviewer_command,
+            ["shell", "lexer", "was", "here"],
+        )
 
     def test_cdp_stuff(self):
         """Test SMS/CDP related config."""

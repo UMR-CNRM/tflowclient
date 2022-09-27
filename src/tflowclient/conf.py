@@ -41,6 +41,7 @@ import configparser
 import logging
 import logging.handlers
 import os
+import shlex
 import typing
 
 __all__ = ["TFlowClientConfig", "tflowclient_conf"]
@@ -232,6 +233,16 @@ class TFlowClientConfig(object):
         The delay between two keystrokes for them to be considered
         "duplicated" (in seconds)."""
         return float(self._conf.get("ui", "double_keystroke_delay", fallback="0.25"))
+
+    @property
+    def logviewer_command(self) -> typing.List[str]:
+        """The command-line launched to visualise logfiles.
+
+        {filename:s} will be substituted by the actual log file path.
+        """
+        return shlex.split(
+            self._conf.get("ui", "logviewer_command", fallback="vim -R -N {filename:s}")
+        )
 
     @property
     def cdp_default_path(self) -> typing.Union[str, None]:

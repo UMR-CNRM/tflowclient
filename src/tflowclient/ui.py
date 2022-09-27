@@ -890,7 +890,12 @@ class TFlowLogsView(TFlowAbstractView):
         assert isinstance(button, urwid.Button)
         try:
             with self.flow.logs.get_as_file(self.focused_path, log_listing) as f_obj:
-                subprocess.check_call(["vim", "-R", "-N", f_obj.name])
+                subprocess.check_call(
+                    [
+                        s.format(filename=f_obj.name)
+                        for s in tflowclient_conf.logviewer_command
+                    ]
+                )
         except LogsGatewayRuntimeError as e:
             # This step may fail (network problems, ...)
             self.text_container.set_text(
