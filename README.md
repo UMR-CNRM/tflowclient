@@ -17,7 +17,7 @@ The ``tflowclient`` package is only compatible with Python >= 3.7.
 The ``tflowclient`` package itself only depends on the non-standard ``urwid``
 package that is available on PyPi.
 
-Developers will also need to install the ``nose`` and ``black`` PyPi
+Developers will also need to install the ``pytest`` and ``black`` PyPi
 packages in order to respectively test the code and format the code.
 
 To use the ``bin/tflowclient_cdp.py`` executable, a ``cdp`` executable needs to
