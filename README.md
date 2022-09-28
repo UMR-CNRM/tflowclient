@@ -1,3 +1,6 @@
+[![Lint & Test](https://github.com/UMR-CNRM/tflowclient/actions/workflows/lint_and_test.yml/badge.svg)](https://github.com/UMR-CNRM/tflowclient/actions/workflows/lint_and_test.yml)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
 # tflowclient
 
 The ``tflowclient`` package (Text-based workFlow scheduler Client) provides all
