@@ -346,7 +346,6 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
             self.credentials["user"],
             self.credentials["password"],
         ]
-        displayable_cmd = " ".join(cmd[:-1] + ["masked_password"])
         rc = 0
         try:
             output = subprocess.check_output(
@@ -354,8 +353,7 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
             )
         except subprocess.CalledProcessError as e:
             logger.error(
-                "Error while running cdp:\n  cmd=%s\n  exception=%s",
-                displayable_cmd,
+                "Error while running cdp:\n exception=%s",
                 str(e),
             )
             rc = e.returncode
