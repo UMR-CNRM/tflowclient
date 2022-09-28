@@ -38,8 +38,6 @@ setup(
         "bin/tflowclient_dumppalette.py",
     ],
     install_requires=["urwid"],
-    test_suite="nose.collector",
-    tests_require=["nose"],
     include_package_data=True,
     zip_safe=True,
 )
