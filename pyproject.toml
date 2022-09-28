@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tflowview"
+description = "A text-based viewer for ECMWF workflow schedulers."
+readme = "README.md"
+requires-python = ">=3.7"
+keywords = ["SMS", ]
+license = {text = "CECILL-C"}
+authors = [
+    {name = "Louis-François Meunier", email = "louis-francois.meunier@meteo.fr"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: CeCILL-C Free Software License Agreement (CECILL-C)",
+]
+dependencies = [
+    "urwid",
+]
+dynamic = ["version"]
+
+[project.urls]
+repository = "https://github.com/UMR-CNRM/tflowclient"
+
+[project.scripts]
+tflowclient_cdp = "tflowclient.entrypoints.cdp:main"
+tflowclient_demo = "tflowclient.entrypoints.demo:main"
+tflowclient_dumppalette = "tflowclient.entrypoints.dumppalette:main"
+
+[tool.setuptools_scm]
+tag_regex = '^(?P<prefix>tflowclient_)?(?P<version>[^\+]+)(?P<suffix>.*)?$'
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "src"
+]
+testpaths = [
+    "tests",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py37']

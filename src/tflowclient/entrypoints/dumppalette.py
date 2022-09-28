@@ -1,4 +1,3 @@
-#! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 #  Copyright (©) Meteo-France (2020-)
@@ -33,11 +32,24 @@
 #  knowledge of the CeCILL-C license and that you accept its terms.
 
 """
-This is a Text-based workFlow Scheduler Client
-based on the SMS' CDP utility.
+Dump the default palette (i.e color scheme) in a form that will be directly
+usable in the configuration file.
 """
 
-from tflowclient.entrypoints import cdp
+from tflowclient.conf import TFlowClientConfig
 
-if __name__ == "__main__":
-    cdp.main()
+
+def main():
+    """Start the CLI interface"""
+
+    palette = TFlowClientConfig(conf_txt="").palette
+    print("[palette]")
+    for line in palette:
+        print(
+            "{:s} = {:s}".format(
+                line[0],
+                ", ".join(
+                    ["+".join(i) if isinstance(i, tuple) else i for i in line[1:]]
+                ),
+            )
+        )

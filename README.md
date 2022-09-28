@@ -30,25 +30,20 @@ user-specific configuration file ``~/.tflowclientrc.ini``.
 
 Just fetch the code and add the ``src`` directory to your ``PYTHONPATH``.
 
-### Via ``setuptools``
+### Via ``pip``
 
-The ``setuptools`` package can be used:
+Install ``pip``'s build package:
 
-    python ./setup.py install
+    pip install build
 
-It might be advisable to install this package in the user's specific pythons
-directories. To do so:
+Build the ``tflowclient`` package (from the repository root directory):
 
-     python ./setup.py install --user
+    python -m build
 
-### Test your installation
+After this step, a ready to use pip package should be located in the ``dist``
+subdirectory. It may be installed using pip:
 
-Use ``nosetests`` manually or launch it through ``setuptools``:
-
-     python ./setup.py test
-
-Once the package is installed, the ``bin/tflowclient_demo.py`` executable
-can be launched. It allows you to interact with a dummy workflow.
+    pip install ./dist/package_name.tar.gz
 
 ## Rules regarding developments
 
@@ -56,10 +51,12 @@ All the Python code (including the code in ``bin`` and ``tests`` subdirectories)
 must comply with PEP8. Prior to any commit in the central repository, all
 the Python code **must** be automatically formatted using the black formatter:
 
-    black -t py37 .
+    black .
 
-All the unit tests must succeed at any time (see "Test your installation"
-above).
+All the unit tests must succeed at any time. The ``pytest`` launcher should
+be used (from the repository root directory):
+
+    pytest
 
 ## The ``~/.tflowclientrc.ini`` configuration file
 
