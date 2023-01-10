@@ -3,7 +3,7 @@ requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tflowview"
+name = "tflowclient"
 description = "A text-based viewer for ECMWF workflow schedulers."
 readme = "README.md"
 requires-python = ">=3.7"
