@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 #  Copyright (©) Meteo-France (2020-)
 #
 #  This software is a computer program whose purpose is to provide
@@ -132,7 +130,7 @@ class FlowNode(observer.Subject):
         return self._name
 
     @property
-    def parent(self) -> typing.Union[FlowNode, str]:
+    def parent(self) -> FlowNode | str:
         """The parent node."""
         return self._parent
 
@@ -249,8 +247,7 @@ class FlowNode(observer.Subject):
 
     def __iter__(self) -> typing.Iterator[FlowNode]:
         """Iterates over children."""
-        for child in self._children.values():
-            yield child
+        yield from self._children.values()
 
     def __len__(self):
         """The number of children."""
@@ -297,7 +294,7 @@ class FlowNode(observer.Subject):
                         return e_leaf
         return None
 
-    def _iter_property_paths(self, what: str, path_base: str) -> typing.Dict:
+    def _iter_property_paths(self, what: str, path_base: str) -> dict:
         """Internal method: iterate through the nodes tree."""
         flagged = dict()
         path_base = (path_base + "/" if path_base else "") + self.name
@@ -308,7 +305,7 @@ class FlowNode(observer.Subject):
             flagged.update(c_node._iter_property_paths(what, path_base))
         return flagged
 
-    def flagged_paths(self) -> typing.List[str]:
+    def flagged_paths(self) -> list[str]:
         """
         Return a list of paths to objects that are currently ``flagged`` below
         the current node.
@@ -320,7 +317,7 @@ class FlowNode(observer.Subject):
             flagged.update(c_node._iter_property_paths("flagged", ""))
         return list(flagged.keys())
 
-    def user_expanded_paths(self) -> typing.Dict[str, typing.Tuple[bool, FlowStatus]]:
+    def user_expanded_paths(self) -> dict[str, tuple[bool, FlowStatus]]:
         """
         Return a list of paths to objects that are currently ``user_expanded`` below
         the current node.
@@ -332,7 +329,7 @@ class FlowNode(observer.Subject):
             u_expanded.update(c_node._iter_property_paths("_user_expanded", ""))
         return u_expanded
 
-    def blink_paths(self) -> typing.Set[str]:
+    def blink_paths(self) -> set[str]:
         """Return the list of path that may trigger a focus change on refresh."""
         blink = dict()
         if self.blink:
@@ -359,7 +356,7 @@ class FlowNode(observer.Subject):
         for c_node in self:
             c_node.reset_flagged()
 
-    def ingest_flagged(self, flagged_paths: typing.List[str]):
+    def ingest_flagged(self, flagged_paths: list[str]):
         """Import a list of flagged paths."""
         for f in flagged_paths:
             try:
@@ -370,7 +367,7 @@ class FlowNode(observer.Subject):
                 found.flagged = True
 
     def ingest_user_expanded(
-        self, user_expanded_paths: typing.Dict[str, typing.Tuple[bool, FlowStatus]]
+        self, user_expanded_paths: dict[str, tuple[bool, FlowStatus]]
     ):
         """Import a list of user_expanded paths."""
         for f, value in user_expanded_paths.items():
@@ -419,7 +416,7 @@ class RootFlowNode(FlowNode):
         assert isinstance(value, FlowNode)
         self._focused = value
 
-    def ingest_focused(self, focused_path: str, blink_paths: typing.Set[str]):
+    def ingest_focused(self, focused_path: str, blink_paths: set[str]):
         """Import a path to the focused element."""
         if self.blink_paths() <= blink_paths:
             # If the situation becomes worth, do nothing... otherwise
@@ -432,7 +429,7 @@ class RootFlowNode(FlowNode):
                 self.focused = found
 
 
-class ExtraFlowNodeInfo(object):
+class ExtraFlowNodeInfo:
     """An extra information on a FlowNode."""
 
     def __init__(
@@ -549,7 +546,7 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         def handler(signum, frame):
             """Internal callback to deal with signals."""
             assert frame
-            raise BaseException("Signal {:d} was caught.".format(signum))
+            raise BaseException(f"Signal {signum:d} was caught.")
 
         all_signals = {
             signal.SIGHUP,
@@ -577,7 +574,7 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         self._close_connection()
 
     def __str__(self):
-        return "suite {:s} ({:s})".format(self.suite, self.credentials_summary)
+        return f"suite {self.suite:s} ({self.credentials_summary:s})"
 
     @property
     def suite(self) -> str:
@@ -621,9 +618,7 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         return ""
 
     @abc.abstractmethod
-    def _valid_credentials(
-        self, credentials: typing.Dict[str, str]
-    ) -> typing.Dict[str, str]:
+    def _valid_credentials(self, credentials: dict[str, str]) -> dict[str, str]:
         """Ensure that the credential provided by the user are valid."""
         return dict()
 
@@ -672,7 +667,7 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         """Return the full statuses tree for a given root node (**path**)."""
         if path not in self.tree_roots:
             raise ValueError(
-                "The path base node {!s} is not in the tree roots list.".format(path)
+                f"The path base node {path!s} is not in the tree roots list."
             )
         if path not in self._full_statuses:
             logger.debug('Status for "%s" is not yet cached.', path)
@@ -732,8 +727,8 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         self.refresh_tree_roots()
 
     def _command_path_expand(
-        self, root_node: FlowNode, paths: typing.List[str], with_suite: bool = True
-    ) -> typing.List[str]:
+        self, root_node: FlowNode, paths: list[str], with_suite: bool = True
+    ) -> list[str]:
         """Generate a list of **paths** starting at **root_node**."""
         radical = []
         if with_suite:
@@ -744,44 +739,44 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         return ["/".join(radical + p.split("/")).rstrip("/") for p in paths]
 
     def command_gateway(
-        self, command: str, root_node: FlowNode, paths: typing.List[str]
+        self, command: str, root_node: FlowNode, paths: list[str]
     ) -> str:
         """Launch **command** on the *paths* list of nodes."""
         logger.info('Calling the "%s" command on:\n  %s', command, "\n  ".join(paths))
-        return getattr(self, "do_{:s}".format(command))(root_node, paths)
+        return getattr(self, f"do_{command:s}")(root_node, paths)
 
     @abc.abstractmethod
-    def do_rerun(self, root_node: FlowNode, paths: typing.List[str]) -> str:
+    def do_rerun(self, root_node: FlowNode, paths: list[str]) -> str:
         """Actual implementation of the ``execute`` command."""
         pass
 
     @abc.abstractmethod
-    def do_execute(self, root_node: FlowNode, paths: typing.List[str]) -> str:
+    def do_execute(self, root_node: FlowNode, paths: list[str]) -> str:
         """Actual implementation of the ``execute`` command."""
         pass
 
     @abc.abstractmethod
-    def do_suspend(self, root_node: FlowNode, paths: typing.List[str]) -> str:
+    def do_suspend(self, root_node: FlowNode, paths: list[str]) -> str:
         """Actual implementation of the ``suspend`` command."""
         pass
 
     @abc.abstractmethod
-    def do_resume(self, root_node: FlowNode, paths: typing.List[str]) -> str:
+    def do_resume(self, root_node: FlowNode, paths: list[str]) -> str:
         """Actual implementation of the ``resume`` command."""
         pass
 
     @abc.abstractmethod
-    def do_complete(self, root_node: FlowNode, paths: typing.List[str]) -> str:
+    def do_complete(self, root_node: FlowNode, paths: list[str]) -> str:
         """Actual implementation of the ``complete`` command."""
         pass
 
     @abc.abstractmethod
-    def do_requeue(self, root_node: FlowNode, paths: typing.List[str]) -> str:
+    def do_requeue(self, root_node: FlowNode, paths: list[str]) -> str:
         """Actual implementation of the ``execute`` command."""
         pass
 
     @abc.abstractmethod
-    def do_cancel(self, root_node: FlowNode, paths: typing.List[str]) -> str:
+    def do_cancel(self, root_node: FlowNode, paths: list[str]) -> str:
         """Actual implementation of the ``cancel`` command."""
         pass
 
@@ -798,7 +793,7 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         return self._logs_gateway
 
     @staticmethod
-    def _logs_gateway_create() -> typing.Union[logs_gateway.LogsGateway, None]:
+    def _logs_gateway_create() -> logs_gateway.LogsGateway | None:
         """Create a LogGateway object (the first time it is requested).
 
         Implement this method in a concrete class
@@ -806,7 +801,7 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         return None
 
     @abc.abstractmethod
-    def node_info(self, node: FlowNode) -> typing.List[ExtraFlowNodeInfo]:
+    def node_info(self, node: FlowNode) -> list[ExtraFlowNodeInfo]:
         """Return a bunch of information on a **node**.
 
         Such as try number, meters, limits, ...
@@ -815,14 +810,14 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def _actual_save_node_info(
-        self, node: FlowNode, info: typing.List[ExtraFlowNodeInfo]
+        self, node: FlowNode, info: list[ExtraFlowNodeInfo]
     ) -> str:
         """Save the modified information in a given **node**"""
         pass
 
     def save_node_info(
-        self, node: FlowNode, info: typing.List[ExtraFlowNodeInfo]
-    ) -> typing.Union[None, str]:
+        self, node: FlowNode, info: list[ExtraFlowNodeInfo]
+    ) -> None | str:
         """Save the information associated in a given **node**."""
         todo = [i for i in info if i.touched]
         if todo:

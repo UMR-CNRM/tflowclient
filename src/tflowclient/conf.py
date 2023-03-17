@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 #  Copyright (©) Meteo-France (2020-)
 #
 #  This software is a computer program whose purpose is to provide
@@ -42,7 +40,6 @@ import logging
 import logging.handlers
 import os
 import shlex
-import typing
 
 __all__ = ["TFlowClientConfig", "tflowclient_conf"]
 
@@ -79,7 +76,7 @@ DEFAULT_PALETTE = dict(
 )
 
 
-class TFlowClientConfig(object):
+class TFlowClientConfig:
     """Read the tflowclient configuration files.
 
     A system-wide configuration file can be specified using the
@@ -159,7 +156,7 @@ class TFlowClientConfig(object):
         return self._conf.get("urwid", "backend", fallback="raw")
 
     @property
-    def palette(self) -> typing.Union[typing.List[typing.Tuple], None]:
+    def palette(self) -> list[tuple] | None:
         """Return a "palette" description that could be used in urwid.
 
         The palette configuration data are to be found in the [palette] section
@@ -193,7 +190,7 @@ class TFlowClientConfig(object):
         return [(k, *v) for k, v in sorted(full_palette.items())]
 
     @staticmethod
-    def _true_false_none_value(value: str) -> typing.Union[bool, None]:
+    def _true_false_none_value(value: str) -> bool | None:
         """Detect True, False or None in a configuration entry."""
         if value.strip(" ") in ("false", "False", "0"):
             return False
@@ -202,7 +199,7 @@ class TFlowClientConfig(object):
         elif value.strip(" ") in ("None", "none", "Null", "null"):
             return None
         else:
-            raise ValueError("Must be True, False or None. Not {!s}.".format(value))
+            raise ValueError(f"Must be True, False or None. Not {value!s}.")
 
     @property
     def terminal_properties(self) -> dict:
@@ -235,7 +232,7 @@ class TFlowClientConfig(object):
         return float(self._conf.get("ui", "double_keystroke_delay", fallback="0.25"))
 
     @property
-    def logviewer_command(self) -> typing.List[str]:
+    def logviewer_command(self) -> list[str]:
         """The command-line launched to visualise logfiles.
 
         {filename:s} will be substituted by the actual log file path.
@@ -245,27 +242,27 @@ class TFlowClientConfig(object):
         )
 
     @property
-    def cdp_timeout(self) -> typing.Union[float, None]:
+    def cdp_timeout(self) -> float | None:
         """The maximum idle time for a CDP client."""
         return float(self._conf.get("cdp", "timeout", fallback="900"))
 
     @property
-    def cdp_default_path(self) -> typing.Union[str, None]:
+    def cdp_default_path(self) -> str | None:
         """The path to the CDP binary."""
         return self._conf.get("cdp", "path", fallback=None)
 
     @property
-    def cdp_default_host(self) -> typing.Union[str, None]:
+    def cdp_default_host(self) -> str | None:
         """The default SMS server to connect to."""
         return self._conf.get("cdp", "host", fallback=None)
 
     @property
-    def cdp_default_user(self) -> typing.Union[str, None]:
+    def cdp_default_user(self) -> str | None:
         """The default SMS user to connect with."""
         return self._conf.get("cdp", "user", fallback=None)
 
     @property
-    def cdp_default_suite(self) -> typing.Union[str, None]:
+    def cdp_default_suite(self) -> str | None:
         """The default SMS suite to work with."""
         return self._conf.get("cdp", "suite", fallback=None)
 

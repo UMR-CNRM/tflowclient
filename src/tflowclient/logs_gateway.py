@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 #  Copyright (©) Meteo-France (2020-)
 #
 #  This software is a computer program whose purpose is to provide
@@ -146,7 +144,7 @@ class StringBasedLogsGateway(LogsGateway, metaclass=ABCMeta):
             "w+",
             encoding="utf-8",
             delete=True,
-            prefix="log_{:s}".format(os.path.basename(log_file)),
+            prefix=f"log_{os.path.basename(log_file):s}",
         ) as t_file:
             t_file.write(self.get_as_str(path, log_file))
             t_file.flush()
@@ -181,7 +179,7 @@ class DemoLogsGateway(StringBasedLogsGateway):
         basename = path.split("/")[-1]
         # Note: '_some_trash' should be filtered (this is a test)
         return {
-            ("{:s}{:s}".format(basename, suffix), datetime(2020, 1, 1, 0, 5 * i, 0))
+            (f"{basename:s}{suffix:s}", datetime(2020, 1, 1, 0, 5 * i, 0))
             for i, suffix in enumerate((".sms", ".job1", ".1", "_some_trash"))
         }
 
@@ -244,7 +242,7 @@ class SmsLogSvrGateway(StringBasedLogsGateway):
         """Try a dummy request just to check if the log_server is fine."""
         try:
             self._query_server(
-                "list {:s}/fakexp/task.0".format(self.paths[0]),
+                f"list {self.paths[0]:s}/fakexp/task.0",
                 connect_timeout=connect_timeout,
             )
         except LogsGatewayRuntimeError:
@@ -273,7 +271,7 @@ class SmsLogSvrGateway(StringBasedLogsGateway):
 
     def get_as_str(self, path: str, log_file: str) -> str:
         """Return a **log_file** content as a string."""
-        return self._query_server("get {:s}".format(log_file))
+        return self._query_server(f"get {log_file:s}")
 
 
 def get_logs_gateway(kind: str, **kwargs) -> LogsGateway:
@@ -284,4 +282,4 @@ def get_logs_gateway(kind: str, **kwargs) -> LogsGateway:
     elif kind == "sms_log_svr":
         return SmsLogSvrGateway(**kwargs)
     else:
-        raise ValueError('No logs gateway is available for kin="%s"'.format(kind))
+        raise ValueError(f'No logs gateway is available for kind="{kind:s}"')
