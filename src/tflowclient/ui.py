@@ -1683,6 +1683,8 @@ class TFlowApplication(object):
             unhandled_input=self.unhandled_input,
             handle_mouse=tflowclient_conf.handle_mouse,
         )
+        # Activate the heartbeat toward the FlowInterface
+        self.flow_heartbeat()
         # Create the Main (tree) view and display it
         self.current_view = None
         self.main_view = self._APPS[app_name](self.flow, self)
@@ -1711,3 +1713,8 @@ class TFlowApplication(object):
         """Handle q/Q key strokes."""
         if key in ("q", "Q") and self.current_view != self.quit_view:
             self.switch_view(self.quit_view)
+
+    def flow_heartbeat(self):
+        logger.debug("Calling flow_heartbeat.")
+        self.flow.process_heartbeat()
+        self.loop.set_alarm_in(60, lambda ml, ud: self.flow_heartbeat())

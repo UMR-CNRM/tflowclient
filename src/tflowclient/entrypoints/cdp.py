@@ -139,7 +139,7 @@ def main():
     password = cdp_flow.SmsRcReader().get_password(args.server, args.user)
 
     # Let's go
-    cdp = cdp_flow.CdpInterface(args.suite)
+    cdp = cdp_flow.CdpInterface(args.suite, cdp_timeout=tflowclient_conf.cdp_timeout)
     cdp.credentials = dict(
         cdp_path=args.cdp, host=args.server, user=args.user, password=password
     )

@@ -46,7 +46,8 @@ import os
 import re
 import stat
 import subprocess
-import sys
+import threading
+import time
 import typing
 
 from .flow import FlowInterface, RootFlowNode, FlowNode, FlowStatus, ExtraFlowNodeInfo
@@ -164,13 +165,17 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
         """The suite we are working on."""
         return ""
 
-    def _parse_status_output(self, output: str) -> typing.Dict[str, RootFlowNode]:
+    def _parse_status_output(
+        self, output: typing.Union[str, typing.List[str]]
+    ) -> typing.Dict[str, RootFlowNode]:
         """Parse the CDP output returned by a 'status' command."""
         root_nodes = collections.OrderedDict()
         from_suite = False
         current_node = None
         last_matches = []
-        for line in output.split("\n"):
+        if isinstance(output, str):
+            output = output.split("\n")
+        for line in output:
             # Ignore some ot the output lines
             if self._OUTPUT_IGNORE.match(line):
                 continue
@@ -227,7 +232,9 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
                 last_matches.append(m_obj)
         return root_nodes
 
-    def _parse_info_outputs(self, output: str) -> typing.List[ExtraFlowNodeInfo]:
+    def _parse_info_outputs(
+        self, output: typing.Union[str, typing.List[str]]
+    ) -> typing.List[ExtraFlowNodeInfo]:
         """Parse the CDP output returned by a 'info' command."""
         info = list()
 
@@ -248,7 +255,9 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
             return re_m
 
         in_trigger_by = False
-        for line in output.split("\n"):
+        if isinstance(output, str):
+            output = output.split("\n")
+        for line in output:
             line = line.rstrip(" ")
             # Ignore some ot the output lines
             if self._OUTPUT_IGNORE.match(line):
@@ -315,10 +324,222 @@ class CdpOutputParserMixin(metaclass=abc.ABCMeta):
         return info
 
 
+class CdpClientError(subprocess.SubprocessError):
+    """Any client related to thd cdp client."""
+
+    pass
+
+
+class CdpClientLoginError(CdpClientError):
+    """Error while login into the SMS server (using cdp)."""
+
+    pass
+
+
+class CdpClientUnknownSuite(CdpClientError):
+    """Trying to register to an unknown SMS suite."""
+
+    pass
+
+
+class CdpClient(object):
+    """Bridge with the cdp CLI.
+
+    The cdp CLI is kept openned until the :meth:`close` method is called.
+    """
+
+    _END_OF_COMMAND = "TFlowClientCdpCmdDone"
+    _PROMPT_RE = re.compile(r"CDP\s*>\s*")
+    _ERR_RE = re.compile(r"^#\s*ERR:")
+
+    _LOGIN_RE = re.compile(
+        r"^#\s*MSG:SMS-CLIENT-LOGIN:(?P<user>[-\w]+) logged "
+        + r"into (?P<host>[-.\w+]+) with password"
+    )
+    _SUITES1_RE = re.compile(r"^\s*Suites defined in the SMS (?P<host>[-.\w+]+)")
+    _SUITES2_RE = re.compile(r"^Suites you are following")
+
+    def __init__(self, credentials: dict, suite: str = None):
+        """
+        :param credentials: The SMS credentials.
+        :param suite: The suite to automatically register to.
+        """
+        self._suite = None
+        self._suites = None
+        self._lock = threading.RLock()
+        # Start the cdp client
+        cmd = [credentials["cdp_path"], "-q", "-d"]
+        with self._lock:
+            try:
+                self._cdp_client_process = subprocess.Popen(
+                    cmd,
+                    bufsize=0,
+                    universal_newlines=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                )
+            except (OSError, subprocess.SubprocessError) as e:
+                logger.error(
+                    "CdpClient: Error while starting cdp:\n exception=%s",
+                    str(e),
+                )
+                raise CdpClientError("Error while starting cdp.")
+            # login to the server
+            outputs = self.send_command(
+                "login {:s} {:s} {:s}".format(
+                    credentials["host"], credentials["user"], credentials["password"]
+                )
+            )
+            login_m = self._LOGIN_RE.match(outputs[-1])
+            if not (
+                login_m
+                and login_m.group("host") == credentials["host"]
+                and login_m.group("user") == credentials["user"]
+            ):
+                raise CdpClientLoginError(
+                    "unable to login with the provided credentials (host={:s}, user={:s}".format(
+                        credentials["host"], credentials["user"]
+                    )
+                )
+            self._last_interaction = time.monotonic()
+        # Register to the desired suite
+        if suite:
+            self.register(suite)
+
+    def register(self, suite: str):
+        """Register to a given SMS suite."""
+        if self._suite is not None:
+            raise CdpClientError("Already registered to < {:s} >".format(self._suite))
+        self._suite = suite.split("/", maxsplit=1)[0]
+        if self._suite not in self.suites:
+            logger.error("The < %s > suite does not exists.", self._suite)
+            logger.error("Available suites are:\n%s", "\n".join(self.suites))
+            raise CdpClientUnknownSuite(
+                "The < {:s} > suite does not exists.".format(self._suite)
+            )
+        self.send_command("register {:s}".format(self._suite))
+
+    @property
+    def idle(self) -> float:
+        """The idle time (in seconds)"""
+        return time.monotonic() - self._last_interaction
+
+    @property
+    def suite(self) -> str:
+        """The SMS suite we are registered to."""
+        return self._suite
+
+    @property
+    def suites(self) -> typing.Set[str]:
+        """The list of existing suites (on the server)."""
+        if self._suites is None:
+            self._suites = set()
+            suites_list_started = False
+            for l in self.send_command("suites"):
+                if suites_list_started:
+                    if self._SUITES2_RE.match(l):
+                        break
+                    self._suites.update(re.split(r"\s+", l))
+                else:
+                    suites_list_started = self._SUITES1_RE.match(l)
+        return self._suites.copy()
+
+    def _raw_send_command(
+        self, cmd: str = ""
+    ) -> typing.Tuple[typing.Union[int, None], typing.List[str]]:
+        with self._lock:
+            if self._cdp_client_process.poll() is not None:
+                raise CdpClientError("Cannot run commands on a stopped client")
+            if cmd:
+                self._cdp_client_process.stdin.write(cmd + "\n")
+            self._cdp_client_process.stdin.write(
+                "echo {:s}\n".format(self._END_OF_COMMAND)
+            )
+            std_outputs = list()
+            rc = None
+            for line in self._cdp_client_process.stdout:
+                line = self._PROMPT_RE.sub("", line.rstrip())
+                if line == self._END_OF_COMMAND:
+                    break
+                std_outputs.append(line)
+            if self._cdp_client_process.poll() is not None:
+                rc = self._cdp_client_process.returncode
+                for line in self._cdp_client_process.stdout:
+                    std_outputs.append(line)
+            self._last_interaction = time.monotonic()
+        if cmd.startswith("login"):
+            # Mask the password...
+            cmd = " ".join(
+                cmd.split(" ")[:-1]
+                + [
+                    "password_masked",
+                ]
+            )
+        logger.debug("CdpClient: Command < %s > executed. rc=%s.", cmd, rc)
+        if std_outputs and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "CdpClient: Command < %s > executed. outputs:\n%s.",
+                cmd,
+                "\n".join(std_outputs),
+            )
+        return rc, std_outputs
+
+    def send_command(self, cmd: str = "") -> typing.List[str]:
+        rc, outputs = self._raw_send_command(cmd)
+        errors = any([self._ERR_RE.match(l) for l in outputs])
+        if errors or rc is not None:
+            logger.error(
+                "CdpClient: < %s > command outputs:\n%s", cmd, "\n".join(outputs)
+            )
+        if rc is not None:
+            logger.error("CdpClient: The cdp client exited unexpectedly (rc=%s).", rc)
+            raise CdpClientError("The cdp client exited unexpectedly")
+        if errors:
+            logger.error(
+                "CdpClient: Unexpected errors while running the < %s > command", cmd
+            )
+            raise CdpClientError("Unexpected errors")
+        return outputs
+
+    def close(self):
+        if self._cdp_client_process.poll() is None:
+            rc, outputs = self._raw_send_command("exit")
+            if rc != 0:
+                logger.error("CdpClient: The < exit > command failed (rc=%s).", rc)
+                logger.error(
+                    "CdpClient: < exit > command outputs:\n%s", "\n".join(outputs)
+                )
+
+
 class CdpInterface(FlowInterface, CdpOutputParserMixin):
     """:class:`FlowInterface` class that interacts with an SMS CDP client."""
 
     _DUMMY_SUITE_ROOT = RootFlowNode("", FlowStatus.UNKNOWN)
+
+    def __init__(
+        self, suite: str, min_refresh_interval: int = 5, cdp_timeout: int = 900
+    ):
+        super().__init__(suite, min_refresh_interval)
+        self._cdp_timeout = cdp_timeout
+        self._cdp_client_obj = None
+        self._lock = threading.Lock()
+
+    def process_heartbeat(self):
+        """This method will be called regularly by the UI."""
+        if self._cdp_client_obj is not None:
+            with self._lock:
+                if self._cdp_client_obj.idle > self._cdp_timeout:
+                    self._cdp_client_obj.close()
+                    self._cdp_client_obj = None
+
+    def _close_connection(self):
+        if self._cdp_client_obj is not None:
+            with self._lock:
+                self._cdp_client_obj.close()
+                self._cdp_client_obj = None
 
     @property
     def credentials_summary(self) -> str:
@@ -330,52 +551,30 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
             raise ValueError("Improper credentials where provided")
         return credentials
 
+    @property
+    def cdp_client(self) -> CdpClient:
+        """Return an object that deals cdp interactions."""
+        if self._cdp_client_obj is None:
+            self._cdp_client_obj = CdpClient(self.credentials, self.suite)
+        return self._cdp_client_obj
+
     def _run_cdp_command(
         self, command: str, root_node: FlowNode, paths: typing.List[str]
-    ) -> typing.Tuple[str, bool]:
-        todo = "\n".join(
-            [
-                command.format("/" + p)
-                for p in self._command_path_expand(root_node, paths)
-            ]
-            + ["exit"]
-        )
-        cmd = [
-            self.credentials["cdp_path"],
-            self.credentials["host"],
-            self.credentials["user"],
-            self.credentials["password"],
-        ]
-        rc = 0
-        try:
-            output = subprocess.check_output(
-                cmd, input=todo.encode(encoding="utf-8"), stderr=subprocess.PIPE
-            )
-        except subprocess.CalledProcessError as e:
-            logger.error(
-                "Error while running cdp:\n exception=%s",
-                str(e),
-            )
-            rc = e.returncode
-            output = (
-                "Error while running cdp: "
-                + str(e)
-                + "\n"
-                + "Standard Output:\n"
-                + e.stdout.decode(
-                    encoding=sys.getfilesystemencoding(), errors="replace"
+    ) -> typing.Tuple[typing.List[str], bool]:
+        with self._lock:
+            outputs = []
+            rc = True
+            try:
+                for p in self._command_path_expand(root_node, paths):
+                    for actual_cmd in command.format("/" + p).split("\n"):
+                        outputs.extend(self.cdp_client.send_command(actual_cmd))
+            except CdpClientError as e:
+                logger.error(
+                    "Error while running cdp:\n exception=%s",
+                    str(e),
                 )
-                + "Standard Error:\n"
-                + e.stderr.decode(
-                    encoding=sys.getfilesystemencoding(), errors="replace"
-                )
-            )
-        else:
-            output = output.decode(
-                encoding=sys.getfilesystemencoding(), errors="replace"
-            )
-        logger.debug('Command launched:\n"%s"\nresult:\n%s', todo, output)
-        return output, rc == 0
+                rc = False
+        return outputs, rc
 
     @staticmethod
     def _build_tree_roots(
@@ -430,37 +629,37 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
     def do_rerun(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """The SMS ``rerun`` command."""
         output, _ = self._run_cdp_command("force queued {:s}", root_node, paths)
-        return output
+        return "\n".join(output)
 
     def do_execute(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """The SMS ``execute`` command."""
         output, _ = self._run_cdp_command("run -fc {:s}", root_node, paths)
-        return output
+        return "\n".join(output)
 
     def do_suspend(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """The SMS ``suspend`` command."""
         output, _ = self._run_cdp_command("suspend {:s}", root_node, paths)
-        return output
+        return "\n".join(output)
 
     def do_resume(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """The SMS ``resume`` command."""
         output, _ = self._run_cdp_command("resume {:s}", root_node, paths)
-        return output
+        return "\n".join(output)
 
     def do_complete(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """The SMS ``complete`` command."""
         output, _ = self._run_cdp_command("force -r complete {:s}", root_node, paths)
-        return output
+        return "\n".join(output)
 
     def do_requeue(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """The SMS ``rerun`` command."""
         output, _ = self._run_cdp_command("requeue -f {:s}", root_node, paths)
-        return output
+        return "\n".join(output)
 
     def do_cancel(self, root_node: FlowNode, paths: typing.List[str]) -> str:
         """The SMS ``cancel`` command."""
         output, _ = self._run_cdp_command("cancel -y {:s}", root_node, paths)
-        return output
+        return "\n".join(output)
 
     def _logs_gateway_create(self) -> typing.Union[LogsGateway, None]:
         """Create a SMS LogsGateway object."""
@@ -480,7 +679,7 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
         log_host = None
         my_host = None
         log_port = None
-        for line in output.split("\n"):
+        for line in output:
             m_path = re_log_path_h.match(line)
             if m_path:
                 log_paths.append("/".join([m_path.group(1), self.suite]))
@@ -571,4 +770,4 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
         i_output, _ = self._run_cdp_command(
             "\n".join(c_stack), self._DUMMY_SUITE_ROOT, ["fake_path"]
         )
-        return i_output
+        return "\n".join(i_output)

@@ -245,6 +245,11 @@ class TFlowClientConfig(object):
         )
 
     @property
+    def cdp_timeout(self) -> typing.Union[float, None]:
+        """The maximum idle time for a CDP client."""
+        return float(self._conf.get("cdp", "timeout", fallback="900"))
+
+    @property
     def cdp_default_path(self) -> typing.Union[str, None]:
         """The path to the CDP binary."""
         return self._conf.get("cdp", "path", fallback=None)

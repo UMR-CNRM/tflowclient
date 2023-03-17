@@ -192,18 +192,21 @@ class TestConf(unittest.TestCase):
         self.assertEqual(TFlowClientConfig(conf_txt="").cdp_default_user, None)
         self.assertEqual(TFlowClientConfig(conf_txt="").cdp_default_suite, None)
         self.assertEqual(TFlowClientConfig(conf_txt="").cdp_default_path, None)
+        self.assertEqual(TFlowClientConfig(conf_txt="").cdp_timeout, 900)
         t_flow_conf = TFlowClientConfig(
             conf_txt="""[cdp]
         path=toto
         suite=groucho
         user=groucho
         host=server
+        timeout=100
         """
         )
         self.assertEqual(t_flow_conf.cdp_default_host, "server")
         self.assertEqual(t_flow_conf.cdp_default_user, "groucho")
         self.assertEqual(t_flow_conf.cdp_default_suite, "groucho")
         self.assertEqual(t_flow_conf.cdp_default_path, "toto")
+        self.assertEqual(t_flow_conf.cdp_timeout, 100)
 
 
 if __name__ == "__main__":

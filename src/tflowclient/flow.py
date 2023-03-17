@@ -592,6 +592,10 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         """
         return self._min_refresh_interval
 
+    def process_heartbeat(self):
+        """This method will be called regularly by the UI."""
+        pass
+
     def _get_credentials(self) -> dict:
         if self._credentials is None:
             raise RuntimeError("Set credentials first")
