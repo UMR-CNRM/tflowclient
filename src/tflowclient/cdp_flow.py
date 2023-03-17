@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 #  Copyright (©) Meteo-France (2020-)
 #
 #  This software is a computer program whose purpose is to provide
@@ -40,7 +38,6 @@ Some utility classes related to the use of the SMS CDP client are also provided.
 
 import abc
 import collections
-import io
 import logging
 import os
 import re
@@ -76,7 +73,7 @@ class SmsRcPermissionsError(SmsRcFileError):
     pass
 
 
-class SmsRcReader(object):
+class SmsRcReader:
     """Read and process the ``~/.smsrc`` file where SMS passwords are stored.
 
     Such a file is a simple list of lines: ``host user password``
@@ -98,15 +95,15 @@ class SmsRcReader(object):
             try:
                 rc_stats = os.stat(rc_file)
             except OSError:
-                raise SmsRcFileError("{:s} file not found.".format(rc_file))
+                raise SmsRcFileError(f"{rc_file:s} file not found.")
             if not (
                 stat.S_ISREG(rc_stats.st_mode)
                 and (rc_stats.st_mode & (stat.S_IRWXG | stat.S_IRWXO)) == 0
             ):
                 raise SmsRcPermissionsError(
-                    "{:s} must be a regular file with permission 0o600.".format(rc_file)
+                    f"{rc_file:s} must be a regular file with permission 0o600."
                 )
-            with io.open(rc_file, encoding="utf-8") as rc_fh:
+            with open(rc_file, encoding="utf-8") as rc_fh:
                 smsrc_lines = rc_fh.readlines()
         else:
             smsrc_lines = []
@@ -124,9 +121,7 @@ class SmsRcReader(object):
         for s_host, credentials in self._smsrc.items():
             if s_host.startswith(host):
                 return credentials[user]
-        raise KeyError(
-            "No credentials found for host={:s} and user={:s}.".format(host, user)
-        )
+        raise KeyError(f"No credentials found for host={host:s} and user={user:s}.")
 
 
 class CdpOutputParserMixin(metaclass=abc.ABCMeta):
@@ -342,7 +337,7 @@ class CdpClientUnknownSuite(CdpClientError):
     pass
 
 
-class CdpClient(object):
+class CdpClient:
     """Bridge with the cdp CLI.
 
     The cdp CLI is kept openned until the :meth:`close` method is called.
@@ -412,15 +407,15 @@ class CdpClient(object):
     def register(self, suite: str):
         """Register to a given SMS suite."""
         if self._suite is not None:
-            raise CdpClientError("Already registered to < {:s} >".format(self._suite))
+            raise CdpClientError(f"Already registered to < {self._suite:s} >")
         self._suite = suite.split("/", maxsplit=1)[0]
         if self._suite not in self.suites:
             logger.error("The < %s > suite does not exists.", self._suite)
             logger.error("Available suites are:\n%s", "\n".join(self.suites))
             raise CdpClientUnknownSuite(
-                "The < {:s} > suite does not exists.".format(self._suite)
+                f"The < {self._suite:s} > suite does not exists."
             )
-        self.send_command("register {:s}".format(self._suite))
+        self.send_command(f"register {self._suite:s}")
 
     @property
     def idle(self) -> float:
@@ -455,9 +450,7 @@ class CdpClient(object):
                 raise CdpClientError("Cannot run commands on a stopped client")
             if cmd:
                 self._cdp_client_process.stdin.write(cmd + "\n")
-            self._cdp_client_process.stdin.write(
-                "echo {:s}\n".format(self._END_OF_COMMAND)
-            )
+            self._cdp_client_process.stdin.write(f"echo {self._END_OF_COMMAND:s}\n")
             std_outputs = list()
             rc = None
             for line in self._cdp_client_process.stdout:
@@ -603,8 +596,8 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
         s_output, ok = self._run_cdp_command(
             "\n".join(
                 [
-                    "status /{:s}".format(self.suite),
-                    "status -f /{:s}/{:s}".format(self.suite, path),
+                    f"status /{self.suite:s}",
+                    f"status -f /{self.suite:s}/{path:s}",
                 ]
             ),
             self._DUMMY_SUITE_ROOT,
@@ -730,7 +723,7 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
     ) -> str:
         """Record changes in the node's information."""
         c_stack = []
-        node_sms_path = "/{:s}/{:s}".format(self.suite, node.full_path)
+        node_sms_path = f"/{self.suite:s}/{node.full_path:s}"
         # Generate the list of command to be executed
         for change in info:
             if change.kind == "flowspecific" and change.name == "MaxTries":
@@ -741,7 +734,7 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
                         )
                     )
                 else:
-                    c_stack.append("alter -r -v {:s} SMSTRIES".format(node_sms_path))
+                    c_stack.append(f"alter -r -v {node_sms_path:s} SMSTRIES")
             elif change.kind == "limit":
                 if not change.value.endswith("reset"):
                     c_stack.append(
@@ -749,7 +742,7 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
                             node_sms_path, change.name, change.value
                         )
                     )
-                c_stack.append("reset {:s}:{:s}".format(node_sms_path, change.name))
+                c_stack.append(f"reset {node_sms_path:s}:{change.name:s}")
             elif change.kind == "meter":
                 c_stack.append(
                     "alter -m {:s}:{:s} {!s}".format(
@@ -763,9 +756,7 @@ class CdpInterface(FlowInterface, CdpOutputParserMixin):
                     )
                 )
             else:
-                raise NotImplementedError(
-                    "Do not know how to update: {!s}".format(change)
-                )
+                raise NotImplementedError(f"Do not know how to update: {change!s}")
         # Execute the command stack
         i_output, _ = self._run_cdp_command(
             "\n".join(c_stack), self._DUMMY_SUITE_ROOT, ["fake_path"]

@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 #  Copyright (©) Meteo-France (2020-)
 #
 #  This software is a computer program whose purpose is to provide
@@ -125,7 +123,7 @@ class AnyEntryWidget(urwid.TreeWidget, Observer):
         """Manually change the expanded attribute."""
         pass
 
-    def keypress(self, size: typing.Tuple[int], key: str) -> typing.Union[str, None]:
+    def keypress(self, size: tuple[int], key: str) -> str | None:
         """allow subclasses to intercept keystrokes."""
         # Suppress the standard +/- behaviour
         if key not in ("+", "-", "right"):
@@ -146,7 +144,7 @@ class AnyEntryWidget(urwid.TreeWidget, Observer):
         return [
             (
                 self._flow_node.status.name,
-                "[{:s}]".format(self._flow_node.status.name[:3]),
+                f"[{self._flow_node.status.name[:3]:s}]",
             ),
             " ",
             label,
@@ -201,7 +199,7 @@ class FamilyTreeWidget(AnyEntryWidget):
         self._flow_node.user_expanded = expanded
         self.update_expanded_icon()
 
-    def keypress(self, size: typing.Tuple[int], key: str) -> typing.Union[str, None]:
+    def keypress(self, size: tuple[int], key: str) -> str | None:
         """allow subclasses to intercept keystrokes"""
         if key in " ":
             # Expand ...
@@ -269,7 +267,7 @@ class FamilyNode(urwid.ParentNode):
         parent.set_child_node(self.get_key(), self)
         return parent
 
-    def load_child_keys(self) -> typing.List[typing.Union[None, str]]:
+    def load_child_keys(self) -> list[None | str]:
         """The list of children tags (so-called keys in Urwid terminology)."""
         self._c_keys = collections.OrderedDict()
         for c in self.flow_node:
@@ -423,7 +421,7 @@ class TFlowTreeListBox(urwid.TreeListBox):
         else:
             yield
 
-    def keypress(self, size: typing.Tuple[int], key: str) -> typing.Union[str, None]:
+    def keypress(self, size: tuple[int], key: str) -> str | None:
         """Do not use left/right keys (they are useful to jump between columns)."""
         if key in ("left", "right"):
             return key
@@ -463,7 +461,7 @@ class KeyCaptureWrapper(urwid.WidgetWrap):
         return True
 
     # noinspection PyCallingNonCallable
-    def keypress(self, size: typing.Tuple[int], key: str) -> typing.Union[str, None]:
+    def keypress(self, size: tuple[int], key: str) -> str | None:
         """Divert key strokes to the ``keypress_hook`` method."""
         key = self._current_view.keypress_hook(key)
         if key and hasattr(self._w, "keypress") and self._propagate:
@@ -512,7 +510,7 @@ class TFlowAbstractView(metaclass=abc.ABCMeta):
 
     def header_update(self, extra: str = ""):
         """Update the header text (given any **extra** information)."""
-        self.header.set_text("tCDP for {!s}. {:s}".format(self.flow, extra))
+        self.header.set_text(f"tCDP for {self.flow!s}. {extra:s}")
 
     def footer_update(self, *extras: list):
         """Update the footer text given a list of command extended by **extras**."""
@@ -532,7 +530,7 @@ class TFlowAbstractView(metaclass=abc.ABCMeta):
             self.footer.contents = [(t, self.footer.options()) for t in txt_pile]
             self.footer.cell_width = max_len
 
-    def keypress_hook(self, key: str) -> typing.Union[str, None]:
+    def keypress_hook(self, key: str) -> str | None:
         """Leveraged when used with a :class:`KeyCaptureWrapper` wrapper."""
         return key
 
@@ -544,8 +542,8 @@ class TFlowAbstractCommandView(TFlowAbstractView):
         self,
         flow_object: FlowInterface,
         app_object: TFlowApplication,
-        root_node: typing.Union[FlowNode, None],
-        selected: typing.List[str],
+        root_node: FlowNode | None,
+        selected: list[str],
     ):
         """
         :param flow_object: The flow object currently being used
@@ -606,7 +604,7 @@ class TFlowAbstractCommandView(TFlowAbstractView):
         # Display the result and wait for statuses to be refreshed
         summary = self.flow.command_gateway(command, self.root_node, self.selected)
         text_container = TFlowLongTextWidget(
-            ['Result for the "{:s}" command:'.format(command)] + summary.split("\n")
+            [f'Result for the "{command:s}" command:'] + summary.split("\n")
         )
         wait = urwid.Text(
             ("warning", "Please wait will the statuses are being refreshed...")
@@ -624,7 +622,7 @@ class TFlowAbstractCommandView(TFlowAbstractView):
         wait.set_text("")
         self.footer_update([("key", "ESC/ENTER/BACKSPACE"), ": back to statuses"])
 
-    def keypress_hook(self, key: str) -> typing.Union[str, None]:
+    def keypress_hook(self, key: str) -> str | None:
         """Handle key strokes."""
         if self.selected and self._todo is None:
             key = self._selected_keypress_hook(key)
@@ -640,7 +638,7 @@ class TFlowAbstractCommandView(TFlowAbstractView):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _selected_keypress_hook(self, key: str) -> typing.Union[str, None]:
+    def _selected_keypress_hook(self, key: str) -> str | None:
         raise NotImplementedError
 
 
@@ -661,7 +659,7 @@ class TFlowCommandView(TFlowAbstractCommandView):
         self,
         flow_object: FlowInterface,
         app_object: TFlowApplication,
-        root_node: typing.Union[RootFlowNode, None],
+        root_node: RootFlowNode | None,
     ):
         """
         :param flow_object: The flow object currently being used
@@ -736,7 +734,7 @@ class TFlowCommandView(TFlowAbstractCommandView):
     def _do_post_command_update(self):
         self.flow.refresh(self.root_node.name, force=True)
 
-    def _selected_keypress_hook(self, key: str) -> typing.Union[str, None]:
+    def _selected_keypress_hook(self, key: str) -> str | None:
         for av_c in self.available_commands:
             if av_c[1] and key.upper() == av_c[1]:
                 self._do_command(av_c[2])
@@ -778,7 +776,7 @@ class TFlowCancelCommandView(TFlowAbstractCommandView):
     def _do_post_command_update(self):
         self.flow.refresh_tree_roots(force=True)
 
-    def _selected_keypress_hook(self, key: str) -> typing.Union[str, None]:
+    def _selected_keypress_hook(self, key: str) -> str | None:
         if key in ("c", "C"):
             self._do_command("cancel")
         return key
@@ -793,7 +791,7 @@ class TFlowLogsView(TFlowAbstractView):
         self,
         flow_object: FlowInterface,
         app_object: TFlowApplication,
-        root_node: typing.Union[RootFlowNode, None],
+        root_node: RootFlowNode | None,
     ):
         """
         :param flow_object: The flow object currently being used
@@ -826,7 +824,7 @@ class TFlowLogsView(TFlowAbstractView):
                         (
                             "warning",
                             "An un-expected error occurred while fetching the "
-                            + "list of available log files:\n{!s}".format(e),
+                            + f"list of available log files:\n{e!s}",
                         )
                     ]
                 )
@@ -920,7 +918,7 @@ class TFlowLogsView(TFlowAbstractView):
         # Redraw the whole screen (because, vim will have messed things up...)
         self.app.loop.screen.clear()
 
-    def keypress_hook(self, key: str) -> typing.Union[str, None]:
+    def keypress_hook(self, key: str) -> str | None:
         """Handle key strokes."""
         if key in ("esc", "backspace"):
             self.app.switch_view(self.app.main_view)
@@ -935,7 +933,7 @@ class TFlowInfoView(TFlowAbstractView):
         self,
         flow_object: FlowInterface,
         app_object: TFlowApplication,
-        visited_node: typing.Union[FlowNode, None],
+        visited_node: FlowNode | None,
         read_only: bool = False,
     ):
         """
@@ -979,7 +977,7 @@ class TFlowInfoView(TFlowAbstractView):
             to_pile_up.append(urwid.Divider())
             to_pile_up.append(urwid.Text(("title", kind.upper() + ":")))
             for item in info:
-                caption = "- {:s}".format(item.name)
+                caption = f"- {item.name:s}"
                 if item.editable and not self._read_only:
                     edit_w = urwid.Edit(edit_text=item.value)
                     urwid.connect_signal(
@@ -1002,7 +1000,7 @@ class TFlowInfoView(TFlowAbstractView):
                         )
                     )
                 if item.description:
-                    to_pile_up.append(urwid.Text("  # ({:s})".format(item.description)))
+                    to_pile_up.append(urwid.Text(f"  # ({item.description:s})"))
         if to_pile_up:
             to_pile_up.insert(
                 0,
@@ -1043,7 +1041,7 @@ class TFlowInfoView(TFlowAbstractView):
         item.value = widget.edit_text
         self._refresh_footer()
 
-    def keypress_hook(self, key: str) -> typing.Union[str, None]:
+    def keypress_hook(self, key: str) -> str | None:
         """Handle key strokes."""
         if self._result:
             # Results are currently being displayed
@@ -1208,7 +1206,7 @@ class TFlowCancelMainView(TFlowAbstractView, Observer):
             logger.debug('Tree root change notified by "%r"', item)
             self.update_flow_roots()
 
-    def keypress_hook(self, key: str) -> typing.Union[str, None]:
+    def keypress_hook(self, key: str) -> str | None:
         """Handle key strokes."""
         if key in ("i", "I"):
             self.info_dialog()
@@ -1225,13 +1223,13 @@ class TFlowCancelMainView(TFlowAbstractView, Observer):
             return key
 
     @property
-    def focused_node_name(self) -> typing.Union[str, None]:
+    def focused_node_name(self) -> str | None:
         """The name of the selected."""
         focused = self.grid_flow.focus
         return None if focused is None else focused.label
 
     @property
-    def focused_node(self) -> typing.Union[FlowNode, None]:
+    def focused_node(self) -> FlowNode | None:
         """The object representing the selected node."""
         return (
             None
@@ -1289,7 +1287,7 @@ class TFlowCancelMainView(TFlowAbstractView, Observer):
         """Increment the root Node age."""
         self._timer = None
         self.header_update(
-            "Information is {:.0f} seconds old.".format(self.flow.tree_roots.age)
+            f"Information is {self.flow.tree_roots.age:.0f} seconds old."
         )
         self._timer = current_loop.set_alarm_in(
             self.timer_interval, self.age_auto_update
@@ -1402,7 +1400,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
             self._active_root = value
 
     @property
-    def active_root_node(self) -> typing.Union[RootFlowNode, None]:
+    def active_root_node(self) -> RootFlowNode | None:
         """Return the current active root FlowNode object."""
         if self.active_root:
             return self.flow.full_status(self.active_root)
@@ -1414,7 +1412,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
         """Return **True** if the status tree is currently focused."""
         return self.main_columns.focus_position == 1
 
-    def keypress_hook(self, key: str) -> typing.Union[str, None]:
+    def keypress_hook(self, key: str) -> str | None:
         """Handle key strokes."""
         if key in ("r", "R"):
             self.flow_refresh()
@@ -1443,8 +1441,8 @@ class TFlowMainView(TFlowAbstractView, Observer):
             return key
 
     def _radio_buttons_list(
-        self, b_group: list, active: str, roots: typing.List[FlowNode]
-    ) -> typing.List[urwid.RadioButton]:
+        self, b_group: list, active: str, roots: list[FlowNode]
+    ) -> list[urwid.RadioButton]:
         return [
             urwid.RadioButton(
                 b_group,
@@ -1520,7 +1518,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
                 root_f_node = None
             if root_f_node is not None:
                 self.header_update(
-                    "Information is {:.0f} seconds old.".format(root_f_node.age)
+                    f"Information is {root_f_node.age:.0f} seconds old."
                 )
                 self._active_root_timer = current_loop.set_alarm_in(
                     self.timer_interval, self.age_auto_update, user_data=registered_root
@@ -1562,7 +1560,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
             focused_node.path,
         )
         # Display the Root node age
-        self.header_update("Information is {:.0f} seconds old.".format(root_f_node.age))
+        self.header_update(f"Information is {root_f_node.age:.0f} seconds old.")
         # Start an age updater if needed
         if self._active_root_timer is None:
             self._active_root_timer = self.app.loop.set_alarm_in(
@@ -1640,7 +1638,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
 # ------ Application object:  The UI entry point ! -------
 
 
-class TFlowApplication(object):
+class TFlowApplication:
     """The object representing the tflowclient UI."""
 
     _APPS = {
@@ -1655,7 +1653,7 @@ class TFlowApplication(object):
         """
         self.flow = flow_object
         if app_name not in self._APPS:
-            raise ValueError('Unauthorised "app_name" value: {:s}'.format(app_name))
+            raise ValueError(f'Unauthorised "app_name" value: {app_name:s}')
         # Create the Frame widget that will be used in the whole application
         self.view = urwid.Frame(urwid.Filler(urwid.Text("Initialising...")))
         # Create the main loop

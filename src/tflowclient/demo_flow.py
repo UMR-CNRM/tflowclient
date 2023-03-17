@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 #  Copyright (©) Meteo-France (2020-)
 #
 #  This software is a computer program whose purpose is to provide
@@ -78,10 +76,10 @@ class DemoFlowInterface(FlowInterface):
         """Create a fake list of root nodes for our workflow definition."""
         rfn = RootFlowNode("", FlowStatus.ACTIVE)
         for i_x in range(2):
-            rfn.add("{:04d}".format(i_x), FlowStatus.COMPLETE)
-        rfn.add("{:04d}".format(2), FlowStatus.ABORTED)
+            rfn.add(f"{i_x:04d}", FlowStatus.COMPLETE)
+        rfn.add(f"{2:04d}", FlowStatus.ABORTED)
         for i_x in range(3, 80):
-            rfn.add("{:04d}".format(i_x), FlowStatus.SUSPENDED)
+            rfn.add(f"{i_x:04d}", FlowStatus.SUSPENDED)
         logger.debug("Got tree roots statuses:\n%s", rfn)
         return rfn
 
@@ -103,32 +101,28 @@ class DemoFlowInterface(FlowInterface):
                     else FlowStatus.ABORTED
                 )
                 ff_status = None
-            family = rfn.add(
-                "{:s}_family{:02d}".format(path, i_f), overall_status or f_status
-            )
+            family = rfn.add(f"{path:s}_family{i_f:02d}", overall_status or f_status)
             efm = family.add(
                 "extra_family", overall_status or ff_status or FlowStatus.ACTIVE
             )
             for i_t in range(3):
                 efm.add(
-                    "task{:02d}".format(i_t),
+                    f"task{i_t:02d}",
                     overall_status or ff_status or FlowStatus.COMPLETE,
                 )
-            efm.add(
-                "task{:02d}".format(4), overall_status or ff_status or FlowStatus.ACTIVE
-            )
+            efm.add(f"task{4:02d}", overall_status or ff_status or FlowStatus.ACTIVE)
             for i_t in range(3):
                 family.add(
-                    "task{:02d}".format(i_t),
+                    f"task{i_t:02d}",
                     overall_status or ff_status or FlowStatus.COMPLETE,
                 )
             for i_t in range(3, 5):
                 family.add(
-                    "task{:02d}".format(i_t),
+                    f"task{i_t:02d}",
                     overall_status or ff_status or FlowStatus.ACTIVE,
                 )
             family.add(
-                "task{:02d}".format(5),
+                f"task{5:02d}",
                 overall_status
                 or ff_status
                 or (
@@ -138,11 +132,11 @@ class DemoFlowInterface(FlowInterface):
                 ),
             )
             family.add(
-                "task{:02d}".format(6),
+                f"task{6:02d}",
                 overall_status or ff_status or FlowStatus.SUBMITTED,
             )
             family.add(
-                "task{:02d}".format(7),
+                f"task{7:02d}",
                 overall_status or ff_status or FlowStatus.UNKNOWN,
             )
         logger.debug('Got statuses for "%s":\n%s', path, rfn)
@@ -192,7 +186,7 @@ class DemoFlowInterface(FlowInterface):
                 "flowspecific",
                 "MaxTries",
                 "1",
-                description="Inherited from /{:s}".format(self.suite),
+                description=f"Inherited from /{self.suite:s}",
                 editable=True,
             ),
             ExtraFlowNodeInfo("limit", "run", "10", editable=True),

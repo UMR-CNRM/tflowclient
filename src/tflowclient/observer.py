@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 #  Copyright (©) Meteo-France (2020-)
 #
 #  This software is a computer program whose purpose is to provide
@@ -42,7 +40,7 @@ import weakref
 __all__ = ["Subject", "Observer"]
 
 
-class Subject(object):
+class Subject:
     """Mixin class for any Observable class."""
 
     def __init__(self):
@@ -67,7 +65,7 @@ class Subject(object):
             observer.update_obs_item(self, info)
 
 
-class Observer(object):
+class Observer:
     """Abstract class for any observer class."""
 
     def update_obs_item(self, item: Subject, info: dict):
