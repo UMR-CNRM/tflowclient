@@ -1466,8 +1466,10 @@ class TFlowMainView(TFlowAbstractView, Observer):
         recent_roots = []
         other_roots = []
         for root_node in self.flow.tree_roots:
-            age = current_time - self._roots_hits.get(root_node.name, 0)
-            if age > self.recent_roots_threshold:
+            age = current_time - self._roots_hits.get(
+                root_node.name, -self.recent_roots_threshold
+            )
+            if age >= self.recent_roots_threshold:
                 other_roots.append(root_node)
             else:
                 recent_roots.append(root_node)
