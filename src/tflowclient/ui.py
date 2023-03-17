@@ -1517,9 +1517,7 @@ class TFlowMainView(TFlowAbstractView, Observer):
                 # If the tree root does not exists anymore in the scheduler...
                 root_f_node = None
             if root_f_node is not None:
-                self.header_update(
-                    f"Information is {root_f_node.age:.0f} seconds old."
-                )
+                self.header_update(f"Information is {root_f_node.age:.0f} seconds old.")
                 self._active_root_timer = current_loop.set_alarm_in(
                     self.timer_interval, self.age_auto_update, user_data=registered_root
                 )

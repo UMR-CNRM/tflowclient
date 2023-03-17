@@ -618,9 +618,7 @@ class FlowInterface(observer.Subject, metaclass=abc.ABCMeta):
         return ""
 
     @abc.abstractmethod
-    def _valid_credentials(
-        self, credentials: dict[str, str]
-    ) -> dict[str, str]:
+    def _valid_credentials(self, credentials: dict[str, str]) -> dict[str, str]:
         """Ensure that the credential provided by the user are valid."""
         return dict()
 
